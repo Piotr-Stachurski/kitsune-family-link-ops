@@ -228,13 +228,14 @@ function upsertToSheet(dataArray) {
   }
 }
 
-// [FIX] uploadFileFromFrontend() — async pattern.
-// Funkcja TYLKO zapisuje plik do Dropzone i wraca natychmiast z potwierdzeniem.
-// Nie wywołuje już processDropzone() synchronicznie — to eliminuje ryzyko timeout.
-// Przetwarzanie odbywa się przez osobny trigger czasowy (patrz: processDropzone()).
+// [FIX v2.2] uploadFileFromFrontend() — async pattern z auto-triggerem.
+// Plik trafia do Dropzone i automatycznie tworzy jednorazowy trigger
+// który odpala processDropzone() za 10 sekund.
+// Trigger sam się usuwa po wykonaniu (cleanup w processDropzone()).
+// Zero ręcznej konfiguracji triggerów w GAS Editor — wgrywasz kod, działa.
 function uploadFileFromFrontend(dataURI, filename) {
   try {
-    // [FIX] Walidacja nazwy pliku — regex sprawdza format: Imię_cokolwiek.pdf
+    // [FIX] Walidacja nazwy pliku — regex zamiast includes('_')
     const validName = /^[A-Za-zÀ-žĄąĆćĘęŁłŃńÓóŚśŹźŻż]+[_ ].+\.pdf$/i.test(filename);
     if (!validName) {
       return { success: false, message: "Nieprawidłowa nazwa pliku. Wymagany format: Imię_Data.pdf (np. Zuzia_2024-03.pdf)" };
@@ -250,10 +251,25 @@ function uploadFileFromFrontend(dataURI, filename) {
     const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, filename);
     DriveApp.getFolderById(dropzoneId).createFile(blob);
 
-    // [FIX] NIE wywołujemy processDropzone() tutaj — trigger czasowy to ogarnia
+    // [FIX v2.2] Cleanup starych triggerów processDropzone (limit GAS: 20 per user)
+    // Usuwamy WSZYSTKIE pending triggery — i tak jeden nowy ogarnie cały Dropzone
+    const existingTriggers = ScriptApp.getProjectTriggers();
+    existingTriggers.forEach(trigger => {
+      if (trigger.getHandlerFunction() === 'processDropzone') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+
+    // [FIX v2.2] Jednorazowy trigger odpalający processDropzone za 10 sekund
+    // .after() w milisekundach. Trigger wykonuje się raz i znika automatycznie po execution.
+    ScriptApp.newTrigger('processDropzone')
+      .timeBased()
+      .after(10 * 1000)
+      .create();
+
     return {
       success: true,
-      message: "Plik zapisany w kolejce. Dane pojawią się w dashboardzie po przetworzeniu (do 5 minut)."
+      message: "Plik w kolejce. Dane pojawią się w dashboardzie za ~30-60 sekund. Odśwież stronę."
     };
   } catch (e) {
     return { success: false, message: e.message };
