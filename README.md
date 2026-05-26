@@ -14,8 +14,10 @@ Built on zero-cost, zero-infrastructure Google Workspace stack: **Apps Script + 
 ![Kitsune Dashboard Desktop](screenshots/desktop.png)
 
 ### Mobile
-![Kitsune Dashboard Mobile](screenshots/mobile-kpi.png)
-![Kitsune Dashboard Mobile — Tooltip & Behavioral Analysis](screenshots/mobile-behavioral.png)
+<p float="left">
+  <img src="screenshots/mobile-kpi.png" width="280" alt="Kitsune Dashboard Mobile — KPI cards" />
+  <img src="screenshots/mobile-behavioral.png" width="280" alt="Kitsune Dashboard Mobile — Behavioral Analysis" />
+</p>
 
 ---
 
@@ -38,10 +40,10 @@ Built on zero-cost, zero-infrastructure Google Workspace stack: **Apps Script + 
 ```
 [You]
   └─ Screenshots of Family Link daily view
-       └─ Compiled into PDF (Imię_YYYY-MM.pdf)
+       └─ Compiled into PDF (ChildName_YYYY-MM.pdf)
             └─ Uploaded via FAB button (+ in corner)
                  └─ Saved to Google Drive / Dropzone folder
-                      └─ processDropzone() [GAS time trigger]
+                      └─ auto-trigger fires processDropzone() after ~10 seconds
                            └─ extractDataWithGemini()
                                 └─ Gemini multimodal API
                                      └─ Structured JSON: { date, apps: { name: { min, category } } }
@@ -98,20 +100,7 @@ The script will automatically create:
 - `Archiwum/` subfolder (processed PDFs)
 - Headers in the active Sheets tab
 
-**4. Set up the processing trigger**
-
-In the GAS editor: **Triggers** (clock icon in left menu) → **+ Add Trigger**
-
-| Setting | Value |
-|---|---|
-| Function | `processDropzone` |
-| Event source | `Time-driven` |
-| Type | `Minutes timer` |
-| Interval | `Every 5 minutes` |
-
-> **Note:** Alternatively, the app uses a one-shot `ScriptApp.newTrigger` that fires ~10 seconds after each upload, so you don't have to wait for the 5-minute cycle. The standing trigger is a fallback for files dropped directly into the Drive folder.
-
-**5. Upload your first PDF**
+**4. Upload your first PDF**
 
 Family Link doesn't export data — you need to capture it manually:
 1. Open Google Family Link app → tap your child's name → **App activity**
@@ -120,7 +109,7 @@ Family Link doesn't export data — you need to capture it manually:
 4. Name the file: `ChildName_YYYY-MM.pdf` (e.g. `Zuzia_2024-03.pdf`)
 5. Tap the **+** button in the dashboard → select your PDF
 
-Data appears in the dashboard within ~30–60 seconds.
+Data appears in the dashboard within ~30–60 seconds. No manual trigger configuration needed — the app handles processing automatically after each upload.
 
 ---
 
