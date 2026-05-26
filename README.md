@@ -174,4 +174,4 @@ MIT — use it, fork it, adapt it.
 
 ---
 
-*Part of the [Kitsune](https://github.com/CoffeeDiver) personal automation ecosystem — built with Google Apps Script and Gemini AI.*
+*Part of the [Kitsune](https://github.com/Piotr-Stachurski) personal automation ecosystem — built with Google Apps Script and Gemini AI.*
