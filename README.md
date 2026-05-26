@@ -141,7 +141,7 @@ The child's name is extracted from the filename (first word before `_` or space)
 
 ## ⚠️ Known limitations
 
-- **Manual data capture** — Family Link has no export API. Screenshots must be taken manually per day.
+- **Manual data capture** — Family Link has no export API and limits history to the last 30 days. Screenshots must be taken manually; this app permanently archives all data in your Sheets SSoT
 - **Screenshot quality** — Gemini extraction accuracy depends on screenshot clarity. Blurry or cropped screenshots may cause missing data for that day.
 - **GAS execution limit** — 6 minutes per execution. Very large PDFs (50+ days in one file) may hit the limit. Recommended: one PDF per month.
 - **Screen ratio metric** — "Screen vs Awake" is calculated against a fixed 16h/day denominator. It's a relative indicator, not a precise measurement.
