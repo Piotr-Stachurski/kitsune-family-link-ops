@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kitsune - Family Link Ops</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #020617; }
+
+        .custom-scroll::-webkit-scrollbar { height: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #0f172a; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #475569; }
+        @media (max-width: 1024px) {
+            .custom-scroll::-webkit-scrollbar { display: none; }
+            .custom-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        }
+
+        .neon-pulse-red { box-shadow: 0 0 8px rgba(239, 68, 68, 0.7); animation: p-red 2s infinite alternate; }
+        @keyframes p-red { 0% { box-shadow: 0 0 4px rgba(239, 68, 68, 0.4); } 100% { box-shadow: 0 0 14px rgba(239, 68, 68, 0.9); } }
+
+        .neon-pulse-purple { box-shadow: 0 0 8px rgba(168, 85, 247, 0.7); animation: p-purp 2s infinite alternate; }
+        @keyframes p-purp { 0% { box-shadow: 0 0 4px rgba(168, 85, 247, 0.4); } 100% { box-shadow: 0 0 14px rgba(168, 85, 247, 0.9); } }
+
+        .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #0ea5e9; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .tab-active { border-bottom: 2px solid #38bdf8; color: #f8fafc; font-weight: bold; background: rgba(56, 189, 248, 0.1); }
+
+        .kitsune-ai-logo { animation: ai-breathe 5s infinite ease-in-out; will-change: transform, filter; }
+        @keyframes ai-breathe {
+            0%, 100% { transform: scale(0.95); filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
+            33% { transform: scale(1.06); filter: drop-shadow(0 0 16px rgba(168, 85, 247, 0.9)); }
+            66% { transform: scale(1.02); filter: drop-shadow(0 0 20px rgba(236, 72, 153, 0.9)); }
+        }
+    </style>
+</head>
+<body class="p-4 sm:p-6 text-slate-100 antialiased relative">
+
+    <div id="uploadFab" class="fixed bottom-6 right-6 z-40">
+        <input type="file" id="pdfUploader" accept="application/pdf" class="hidden" onchange="handleFileUpload(this)">
+        <button onclick="document.getElementById('pdfUploader').click()" class="bg-blue-600 hover:bg-blue-500 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.5)] transition-transform hover:scale-105 active:scale-95">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+        </button>
+    </div>
+
+    <div id="shareModal" class="fixed inset-0 bg-slate-950/80 z-50 hidden flex-col items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <button onclick="closeShareModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 class="text-xl font-bold text-slate-100 mb-4" data-i18n="shareTitle">Udostępnij Dostęp</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-mono text-cyan-400 mb-1" data-i18n="shareMaster">Link Administratora (Pełny dostęp):</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="linkMaster" readonly class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300 font-mono focus:outline-none">
+                        <button onclick="copyToClipboard('linkMaster')" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded text-xs border border-slate-600 transition-colors" data-i18n="copyBtn">Kopiuj</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-mono text-purple-400 mb-1" data-i18n="shareViewer">Link Obserwatora (Tylko do odczytu):</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="linkViewer" readonly class="w-full bg-slate-950 border border-slate-700 rounded p-2 text-xs text-slate-300 font-mono focus:outline-none">
+                        <button onclick="copyToClipboard('linkViewer')" class="bg-slate-800 hover:bg-slate-700 text-white px-3 py-2 rounded text-xs border border-slate-600 transition-colors" data-i18n="copyBtn">Kopiuj</button>
+                    </div>
+                    <p class="text-[10px] text-slate-500 mt-2 font-mono" data-i18n="shareHint">Ten link wyłącza możliwość dodawania plików PDF i zarządzania systemem.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingScreen" class="absolute inset-0 bg-[#020617] z-50 flex flex-col items-center justify-center min-h-screen">
+        <div class="loader mb-4"></div>
+        <p id="loadingText" class="text-xs font-mono text-slate-400 tracking-widest uppercase">Inicjalizacja Systemu SSoT...</p>
+    </div>
+
+    <!-- [FIX] Setup screen — dodany link do Google AI Studio i instrukcja formatu klucza -->
+    <div id="setupScreen" class="absolute inset-0 bg-[#020617] z-40 hidden flex-col items-center justify-center min-h-screen p-6">
+        <div class="bg-slate-900 rounded-2xl shadow-xl p-6 border border-slate-800/80 max-w-sm w-full relative overflow-hidden">
+            <h2 class="text-lg font-black tracking-tight text-white mb-1">Setup API</h2>
+            <p class="text-xs text-slate-400 font-mono mb-4">
+                Potrzebujesz klucza Gemini API.<br>
+                Pobierz go bezpłatnie na:
+                <a href="https://aistudio.google.com/apikey" target="_blank" class="text-cyan-400 hover:text-cyan-300 underline">aistudio.google.com/apikey</a><br>
+                <span class="text-slate-500 text-[10px]">Format: AIzaSy... (35+ znaków)</span>
+            </p>
+            <input type="password" id="apiKeyInput" placeholder="AIzaSy..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 mb-2 font-mono">
+            <!-- [FIX] Komunikat błędu walidacji klucza -->
+            <p id="apiKeyError" class="text-xs text-red-400 font-mono mb-3 hidden"></p>
+            <button onclick="submitSetup()" id="setupBtn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-500 transition-colors">Wdróż Ekosystem</button>
+        </div>
+    </div>
+
+    <div id="dashboardApp" class="max-w-md lg:max-w-7xl mx-auto space-y-5 hidden opacity-0 transition-opacity duration-500 pb-10">
+
+        <header class="pt-2 flex flex-col sm:flex-row justify-between items-start sm:items-end border-b border-slate-800 pb-3 gap-3">
+            <div class="flex items-center gap-4">
+                <!-- Wklej tutaj swoje logo jako base64: src="data:image/png;base64,..." -->
+                <img src="" alt="Kitsune" class="w-24 h-24 object-contain kitsune-ai-logo" onerror="this.style.display='none'">
+                <div>
+                    <h1 class="text-2xl lg:text-3xl font-black tracking-tight bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+                        Kitsune - Family Link Ops
+                    </h1>
+                    <p id="periodLabel" class="text-xs text-slate-400 mt-0.5 font-mono tracking-widest uppercase">Wczytywanie...</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+                <!-- [FIX] Filtr czasu rozszerzony — dodany wybór konkretnego miesiąca -->
+                <select id="timeFilter" onchange="triggerFilterUpdate()" class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-200 rounded px-2.5 py-1.5 focus:outline-none focus:border-blue-500">
+                    <option value="allData" data-i18n="allData">Wszystkie dane</option>
+                    <option value="last7" data-i18n="last7">Ostatnie 7 dni</option>
+                    <option value="last30" data-i18n="last30">Ostatnie 30 dni</option>
+                    <option value="currMonth" data-i18n="currMonth">Bieżący miesiąc</option>
+                    <option value="currQuarter" data-i18n="currQuarter">Bieżący kwartał</option>
+                    <option value="currYear" data-i18n="currYear">Bieżący rok</option>
+                    <!-- [FIX] Konkretne miesiące są generowane dynamicznie przez buildMonthFilter() -->
+                </select>
+
+                <button id="openShareBtn" onclick="openShareModal()" class="flex items-center gap-1 text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+                    <span class="inline">Share</span>
+                </button>
+
+                <button onclick="toggleLang()" id="langBtn" class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors">
+                    PL / EN
+                </button>
+            </div>
+        </header>
+
+        <div id="userTabsContainer" class="flex gap-2 overflow-x-auto custom-scroll pb-1"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-4">
+            <div class="bg-slate-900 rounded-2xl shadow-xl p-5 border border-slate-800/80 relative overflow-hidden">
+                <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-600/20 rounded-full blur-2xl"></div>
+                <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1"><span data-i18n="globalVol">Globalny wolumen</span> (<span id="daysCount">0</span> <span data-i18n="days">dni</span>)</h3>
+                <p id="globalTotal" class="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">0h 0m</p>
+                <div class="mt-4 pt-4 border-t border-slate-800/60">
+                    <div class="flex justify-between items-end mb-1.5">
+                        <span data-i18n="screenRatio" class="text-[10px] font-mono text-slate-400 uppercase">Ekran vs Czuwanie</span>
+                        <span id="screenRatio" class="text-[10px] font-mono font-bold text-cyan-400">0%</span>
+                    </div>
+                    <div class="w-full h-1.5 flex rounded-full overflow-hidden bg-slate-950">
+                        <div id="screenRatioBar" class="bg-cyan-500 h-full shadow-[0_0_8px_#06b6d4]" style="width: 0%;"></div>
+                    </div>
+                    <!-- [FIX] Informacja o założeniu denominatora screenRatio — transparent dla użytkownika -->
+                    <p class="text-[9px] text-slate-600 mt-1 font-mono" data-i18n="screenRatioNote">* bazuje na 16h/dzień dostępnego czasu</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80 relative overflow-hidden">
+                <h3 data-i18n="dailyAvg" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Średnia alokacja dobowa</h3>
+                <p id="dailyAvg" class="text-3xl font-extrabold text-slate-100 mt-1">0h 0m</p>
+            </div>
+
+            <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80 relative">
+                <div class="absolute top-3 right-3 w-2 h-2 rounded-full bg-red-500 neon-pulse-red"></div>
+                <h3 data-i18n="peak" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Peak (Rekord)</h3>
+                <p id="peakValue" class="text-2xl font-extrabold text-red-400 mt-1">0h 0m</p>
+                <p id="peakDate" class="text-[10px] text-slate-400 mt-0.5 font-mono">...</p>
+            </div>
+
+            <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80">
+                <h3 data-i18n="mainThread" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Główny wątek</h3>
+                <p id="topAppTitle" class="text-xl font-extrabold text-indigo-400 mt-1 truncate">...</p>
+                <p id="topAppTime" class="text-[10px] text-slate-400 mt-0.5 font-mono">Cumul: 0h</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <div class="lg:col-span-2 space-y-5">
+                <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80">
+                    <h2 class="text-sm font-mono font-bold text-slate-300 uppercase tracking-wider mb-1"><span data-i18n="timelineLog">📊 Log osi czasu</span></h2>
+                    <p class="text-[10px] text-slate-500 font-mono mb-4"><span data-i18n="timelineHint">Najedź na słupek po detale.</span></p>
+                    <div class="overflow-x-auto custom-scroll rounded-xl border border-slate-800 bg-slate-950/40">
+                        <div id="chartContainer" style="min-width: 800px; height: 280px;" class="p-2">
+                            <canvas id="dailyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80 relative">
+                    <div class="absolute top-3 right-3 w-2 h-2 rounded-full bg-purple-500 neon-pulse-purple"></div>
+                    <h2 class="text-sm font-mono font-bold text-slate-300 uppercase tracking-wider mb-4"><span data-i18n="behavioral">⚡ Analiza Behawioralna</span></h2>
+                    <div class="mb-5">
+                        <div class="flex justify-between items-end mb-1.5">
+                            <span data-i18n="roi" class="text-xs font-bold text-slate-400 uppercase tracking-wide">Podział funkcjonalny (ROI)</span>
+                        </div>
+                        <!-- [FIX] ROI bar — teraz dane kategorii płyną dynamicznie z Gemini przez Sheets payload -->
+                        <div class="w-full h-3 flex rounded-full overflow-hidden bg-slate-950 p-0.5 border border-slate-800" id="roiBarContainer"></div>
+                        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 text-[10px] font-mono text-slate-400 mt-2" id="roiLegend"></div>
+                    </div>
+                    <div class="border-t border-slate-800/60 pt-3">
+                        <div class="flex justify-between items-end mb-2">
+                            <span data-i18n="weekendAnomaly" class="text-xs font-bold text-slate-400 uppercase tracking-wide">Anomalia Weekendowa</span>
+                            <span id="weekendAnomaly" class="text-[10px] font-mono font-bold text-red-400 bg-red-950/50 border border-red-900/50 px-1.5 py-0.5 rounded">...</span>
+                        </div>
+                        <div class="space-y-2 font-mono text-xs">
+                            <div class="flex items-center">
+                                <span data-i18n="weekdays" class="w-16 text-slate-500">Dni rob.</span>
+                                <div class="flex-1 bg-slate-950 border border-slate-800 rounded-full h-2.5 mx-2 overflow-hidden">
+                                    <div id="weekdayBar" class="bg-gradient-to-r from-blue-500 to-indigo-500 h-full rounded-full" style="width: 0%;"></div>
+                                </div>
+                                <span id="weekdayAvg" class="font-bold text-slate-300">0h 0m</span>
+                            </div>
+                            <div class="flex items-center">
+                                <span data-i18n="weekends" class="w-16 text-slate-500">Weekend</span>
+                                <div class="flex-1 bg-slate-950 border border-slate-800 rounded-full h-2.5 mx-2 overflow-hidden">
+                                    <div id="weekendBar" class="h-full rounded-full" style="width: 0%; background-color: #E2725B;"></div>
+                                </div>
+                                <span id="weekendAvg" class="font-bold text-red-400">0h 0m</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="space-y-5 lg:col-span-1">
+                <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80">
+                    <h2 class="text-sm font-mono font-bold text-slate-300 uppercase tracking-wider mb-3"><span data-i18n="topResource">🏆 Lokacja zasobów czasu</span></h2>
+                    <!-- [FIX] top3List renderowany przez DOM manipulation, nie innerHTML z danymi zewnętrznymi -->
+                    <div class="space-y-2 font-mono text-xs" id="top3List"></div>
+                </div>
+
+                <div class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80">
+                    <h2 class="text-sm font-mono font-bold text-slate-300 uppercase tracking-wider mb-4"><span data-i18n="pieChart">🍩 Pełny profil aplikacji</span></h2>
+                    <div class="relative h-64 w-full">
+                        <canvas id="appChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========================================================
+        // 1. NATYWNY ODCZYT PARAMETRÓW URL (Bezawaryjny Routing)
+        // ========================================================
+        google.script.url.getLocation(function(location) {
+            if (location.parameter && location.parameter.role === 'viewer') {
+                const fab = document.getElementById('uploadFab');
+                const shareBtn = document.getElementById('openShareBtn');
+                if (fab) fab.remove();
+                if (shareBtn) shareBtn.remove();
+            }
+        });
+
+        // ========================================================
+        // 2. LOGIKA UDOSTĘPNIANIA
+        // ========================================================
+        function openShareModal() {
+            const btn = document.getElementById('openShareBtn');
+            btn.style.opacity = '0.5';
+            google.script.run.withSuccessHandler(function(url) {
+                btn.style.opacity = '1';
+                document.getElementById('linkMaster').value = url;
+                document.getElementById('linkViewer').value = url + '?role=viewer';
+                document.getElementById('shareModal').classList.remove('hidden');
+                document.getElementById('shareModal').classList.add('flex');
+            }).withFailureHandler(function(err) {
+                btn.style.opacity = '1';
+                alert("Błąd: Upewnij się, że autoryzowałeś skrypt w edytorze GAS.");
+            }).getAppUrl();
+        }
+
+        function closeShareModal() {
+            document.getElementById('shareModal').classList.add('hidden');
+            document.getElementById('shareModal').classList.remove('flex');
+        }
+
+        function copyToClipboard(elementId) {
+            const inputElement = document.getElementById(elementId);
+            inputElement.select();
+            inputElement.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(inputElement.value).then(() => {
+                const btn = inputElement.nextElementSibling;
+                const originalText = btn.innerText;
+                btn.innerText = currentLang === 'pl' ? "Skopiowano!" : "Copied!";
+                btn.classList.replace('bg-slate-800', 'bg-green-600');
+                btn.classList.replace('border-slate-600', 'border-green-500');
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.classList.replace('bg-green-600', 'bg-slate-800');
+                    btn.classList.replace('border-green-500', 'border-slate-600');
+                }, 2000);
+            });
+        }
+
+        // ========================================================
+        // 3. GŁÓWNA LOGIKA APLIKACJI
+        // ========================================================
+        let globalData = [];
+        let currentFilteredDataset = [];
+        let chartInstances = {};
+        let currentLang = 'pl';
+
+        const DICT = {
+            'pl': {
+                'globalVol': 'Globalny wolumen', 'days': 'dni', 'screenRatio': 'Ekran vs Czuwanie',
+                'screenRatioNote': '* bazuje na 16h/dzień dostępnego czasu',
+                'dailyAvg': 'Średnia alokacja dobowa', 'peak': 'Peak (Rekord)', 'mainThread': 'Główny wątek',
+                'timelineLog': '📊 Log osi czasu (Dzień po dniu)', 'timelineHint': 'Najedź na słupek, aby zobaczyć aplikacje.',
+                'behavioral': '⚡ Analiza Behawioralna', 'roi': 'Podział funkcjonalny (ROI)',
+                'weekendAnomaly': 'Anomalia Weekendowa', 'weekdays': 'Dni rob.', 'weekends': 'Weekend',
+                'topResource': '🏆 Lokacja zasobów czasu', 'pieChart': '🍩 Pełny profil aplikacji',
+                // [FIX] Kategorie dynamiczne z Gemini — etykiety UI
+                'cat_entertainment': 'Rozrywka', 'cat_social': 'Social', 'cat_education': 'Edu', 'cat_other': 'Inne',
+                'otherApps': 'Pozostałe', 'allData': 'Wszystkie dane', 'last7': 'Ostatnie 7 dni',
+                'last30': 'Ostatnie 30 dni', 'currMonth': 'Bieżący miesiąc', 'currQuarter': 'Bieżący kwartał', 'currYear': 'Bieżący rok',
+                'shareTitle': 'Udostępnij Dostęp', 'shareMaster': 'Link Administratora (Pełny dostęp):', 'shareViewer': 'Link Obserwatora (Tylko do odczytu):',
+                'copyBtn': 'Kopiuj', 'shareHint': 'Ten link wyłącza możliwość dodawania plików PDF i zarządzania systemem.',
+                'uploadQueued': 'Plik w kolejce do przetworzenia. Dane pojawią się w dashboardzie za kilka minut.',
+                'monthPrefix': ''
+            },
+            'en': {
+                'globalVol': 'Global Volume', 'days': 'days', 'screenRatio': 'Screen vs Awake',
+                'screenRatioNote': '* based on 16h/day available time',
+                'dailyAvg': 'Daily Average Allocation', 'peak': 'Peak (Record)', 'mainThread': 'Main Thread',
+                'timelineLog': '📊 Timeline Log', 'timelineHint': 'Hover/click a bar for app details.',
+                'behavioral': '⚡ Behavioral Analysis', 'roi': 'Functional Breakdown (ROI)',
+                'weekendAnomaly': 'Weekend Anomaly', 'weekdays': 'Weekdays', 'weekends': 'Weekends',
+                'topResource': '🏆 Resource Allocation (Top)', 'pieChart': '🍩 Full App Profile',
+                'cat_entertainment': 'Entertainment', 'cat_social': 'Social', 'cat_education': 'Edu', 'cat_other': 'Other',
+                'otherApps': 'Others', 'allData': 'All data', 'last7': 'Last 7 days',
+                'last30': 'Last 30 days', 'currMonth': 'Current month', 'currQuarter': 'Current quarter', 'currYear': 'Current year',
+                'shareTitle': 'Share Access', 'shareMaster': 'Admin Link (Full Access):', 'shareViewer': 'Viewer Link (Read-Only):',
+                'copyBtn': 'Copy', 'shareHint': 'This link disables PDF uploading and system management.',
+                'uploadQueued': 'File queued for processing. Data will appear in the dashboard in a few minutes.',
+                'monthPrefix': ''
+            }
+        };
+
+        // [FIX] CATEGORY_MAP usunięta — kategorie są teraz atrybutem każdej aplikacji w Sheets payload.
+        // Gemini przypisuje kategorię przy ekstrakcji PDF.
+        // Format apps w Sheets: { "Roblox": { "min": 120, "category": "entertainment" } }
+
+        // [FIX] Mapa kolorów kategorii — po stronie UI, nie danych
+        const CATEGORY_COLORS = {
+            'entertainment': { bar: 'from-red-500 to-rose-500',    dot: 'bg-red-500',     hex: '#ef4444' },
+            'social':        { bar: 'from-emerald-500 to-green-500', dot: 'bg-emerald-500', hex: '#10b981' },
+            'education':     { bar: 'from-blue-500 to-cyan-500',    dot: 'bg-blue-500',    hex: '#06b6d4' },
+            'other':         { bar: 'from-slate-400 to-slate-500',  dot: 'bg-slate-400',   hex: '#94a3b8' }
+        };
+
+        const topColors = ['#ef4444', '#f97316', '#10b981', '#06b6d4', '#8b5cf6'];
+        const mNames = {
+            'pl': ['Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec', 'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'],
+            'en': ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+        };
+        const daysOfWeekMap = {
+            'pl': ['Nd', 'Pn', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob'],
+            'en': ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        };
+
+        function trans(key) { return DICT[currentLang][key] || key; }
+
+        function formatMinsToStr(totalMins) {
+            const h = Math.floor(totalMins / 60); const m = Math.round(totalMins % 60);
+            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        }
+
+        function toggleLang() {
+            currentLang = currentLang === 'pl' ? 'en' : 'pl';
+            document.getElementById('langBtn').innerText = currentLang === 'pl' ? 'PL / EN' : 'EN / PL';
+            updateStaticText();
+            const activeTab = document.querySelector('.tab-active');
+            if (activeTab) renderDashboardForUser(activeTab.innerText);
+        }
+
+        function updateStaticText() {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (DICT[currentLang][key]) el.innerText = DICT[currentLang][key];
+            });
+        }
+
+        function triggerFilterUpdate() {
+            const activeTab = document.querySelector('.tab-active');
+            if (activeTab) renderDashboardForUser(activeTab.innerText);
+        }
+
+        // [FIX] handleFileUpload — async UX.
+        // Plik jest wrzucany do kolejki (Dropzone). Trigger czasowy ogarnia przetwarzanie.
+        // Dashboard NIE przeładowuje się automatycznie — użytkownik dostaje komunikat.
+        function handleFileUpload(inputElement) {
+            const file = inputElement.files[0];
+            if (!file) return;
+
+            // [FIX] Walidacja nazwy pliku — regex zamiast includes('_')
+            const validName = /^[A-Za-zÀ-žĄąĆćĘęŁłŃńÓóŚśŹźŻż]+[_ ].+\.pdf$/i.test(file.name);
+            if (!validName) {
+                alert("Nieprawidłowa nazwa pliku.\nWymagany format: Imię_Data.pdf\nPrzykład: Zuzia_2024-03.pdf");
+                inputElement.value = '';
+                return;
+            }
+
+            const fab = document.getElementById('uploadFab');
+            const originalBtn = fab.querySelector('button');
+            originalBtn.disabled = true;
+            originalBtn.classList.add('opacity-50');
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                google.script.run
+                    .withSuccessHandler(function(response) {
+                        originalBtn.disabled = false;
+                        originalBtn.classList.remove('opacity-50');
+                        inputElement.value = '';
+
+                        if (response.success) {
+                            // [FIX] Async — pokazujemy komunikat zamiast przeładowywać dashboard
+                            showToast(trans('uploadQueued'), 'success');
+                        } else {
+                            showToast("Błąd: " + response.message, 'error');
+                        }
+                    })
+                    .withFailureHandler(function(err) {
+                        originalBtn.disabled = false;
+                        originalBtn.classList.remove('opacity-50');
+                        inputElement.value = '';
+                        showToast("Błąd połączenia z GAS: " + err.message, 'error');
+                    })
+                    .uploadFileFromFrontend(e.target.result, file.name);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // [FIX] Toast notification — zastępuje alert() przy uploadzie
+        function showToast(message, type) {
+            const existing = document.getElementById('toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'toast';
+            toast.className = `fixed top-6 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-xl text-sm font-mono shadow-2xl border transition-all
+                ${type === 'success' ? 'bg-slate-900 border-green-700 text-green-400' : 'bg-slate-900 border-red-700 text-red-400'}`;
+            toast.innerText = message;
+            document.body.appendChild(toast);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 5000);
+        }
+
+        function bootstrapApp() {
+            google.script.run.withSuccessHandler(function(isSetupDone) {
+                if (isSetupDone) {
+                    google.script.run.withSuccessHandler(initSPA).getTelemetryData();
+                } else {
+                    document.getElementById('loadingScreen').style.display = 'none';
+                    document.getElementById('setupScreen').classList.remove('hidden');
+                    document.getElementById('setupScreen').classList.add('flex');
+                }
+            }).checkSetup();
+        }
+
+        function submitSetup() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            const errorEl = document.getElementById('apiKeyError');
+
+            // [FIX] Walidacja klucza po stronie frontendu przed wysłaniem do GAS
+            if (!key.startsWith('AIza') || key.length < 35) {
+                errorEl.innerText = "Klucz musi zaczynać się od 'AIza' i mieć min. 35 znaków.";
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            errorEl.classList.add('hidden');
+
+            const btn = document.getElementById('setupBtn');
+            btn.disabled = true;
+            btn.innerText = 'Weryfikacja...';
+
+            google.script.run.withSuccessHandler(res => {
+                btn.disabled = false;
+                btn.innerText = 'Wdróż Ekosystem';
+                if (res.success) {
+                    document.getElementById('setupScreen').style.display = 'none';
+                    document.getElementById('loadingScreen').style.display = 'flex';
+                    google.script.run.withSuccessHandler(initSPA).getTelemetryData();
+                } else {
+                    errorEl.innerText = res.message;
+                    errorEl.classList.remove('hidden');
+                }
+            }).initializeSystem(key);
+        }
+
+        // [FIX] initSPA — try/catch na JSON.parse + wywołanie buildMonthFilter po załadowaniu danych
+        function initSPA(jsonString) {
+            document.getElementById('loadingScreen').style.display = 'none';
+
+            // [FIX] Guard na corrupted payload
+            try {
+                globalData = JSON.parse(jsonString);
+            } catch (e) {
+                document.getElementById('loadingScreen').style.display = 'none';
+                showToast("Błąd ładowania danych. Sprawdź arkusz Sheets i odśwież stronę.", 'error');
+                const appContent = document.getElementById('dashboardApp');
+                appContent.classList.remove('hidden');
+                setTimeout(() => appContent.classList.remove('opacity-0'), 50);
+                return;
+            }
+
+            const appContent = document.getElementById('dashboardApp');
+            appContent.classList.remove('hidden');
+            setTimeout(() => appContent.classList.remove('opacity-0'), 50);
+
+            if (globalData.length === 0) return;
+
+            const uniqueUsers = [...new Set(globalData.map(item => item.user))];
+            const tabsContainer = document.getElementById('userTabsContainer');
+            tabsContainer.innerHTML = '';
+
+            uniqueUsers.forEach((user, idx) => {
+                const btn = document.createElement('button');
+                btn.innerText = user;
+                btn.className = `px-5 py-2.5 text-sm font-mono rounded-t-lg transition-colors ${idx === 0 ? 'tab-active' : 'text-slate-400 hover:text-slate-200'}`;
+                btn.onclick = (e) => switchTab(user, e.target);
+                tabsContainer.appendChild(btn);
+            });
+
+            updateStaticText();
+
+            // [FIX] Buduj dynamiczny filtr miesięcy po załadowaniu danych
+            buildMonthFilter(globalData);
+
+            renderDashboardForUser(uniqueUsers[0]);
+        }
+
+        // [FIX] buildMonthFilter() — generuje opcje konkretnych miesięcy z danych w Sheets
+        // Przykład: jeśli masz dane od Jan 2024 do May 2025, pojawią się opcje każdego miesiąca
+        function buildMonthFilter(data) {
+            const select = document.getElementById('timeFilter');
+
+            // Usuń poprzednie dynamiczne opcje (mają atrybut data-dynamic)
+            Array.from(select.options).forEach(opt => {
+                if (opt.dataset.dynamic) opt.remove();
+            });
+
+            const months = new Set();
+            data.forEach(row => {
+                if (row.date) {
+                    const d = new Date(row.date);
+                    if (!isNaN(d)) {
+                        months.add(`${d.getFullYear()}-${('0'+(d.getMonth()+1)).slice(-2)}`);
+                    }
+                }
+            });
+
+            // Separator
+            if (months.size > 0) {
+                const sep = document.createElement('option');
+                sep.disabled = true;
+                sep.innerText = '──────────';
+                sep.dataset.dynamic = '1';
+                select.appendChild(sep);
+            }
+
+            Array.from(months).sort().reverse().forEach(key => {
+                const [year, month] = key.split('-');
+                const label = `${mNames[currentLang][parseInt(month)-1]} ${year}`;
+                const opt = document.createElement('option');
+                opt.value = `month_${key}`;
+                opt.innerText = label;
+                opt.dataset.dynamic = '1';
+                select.appendChild(opt);
+            });
+        }
+
+        function switchTab(userName, btnElement) {
+            document.querySelectorAll('#userTabsContainer button').forEach(b => {
+                b.className = 'px-5 py-2.5 text-sm font-mono rounded-t-lg text-slate-400 hover:text-slate-200 transition-colors';
+            });
+            btnElement.className = 'px-5 py-2.5 text-sm font-mono rounded-t-lg tab-active transition-colors';
+            renderDashboardForUser(userName);
+        }
+
+        function renderDashboardForUser(userName) {
+            const userData = globalData.filter(row => row.user === userName);
+            if (userData.length === 0) return;
+
+            const userDates = userData.map(r => new Date(r.date));
+            const maxDate = new Date(Math.max(...userDates));
+            const filterVal = document.getElementById('timeFilter').value;
+
+            let filteredData = userData.filter(row => {
+                const d = new Date(row.date);
+                const diffDays = (maxDate - d) / (1000 * 60 * 60 * 24);
+
+                if (filterVal === 'last7') return diffDays < 7;
+                if (filterVal === 'last30') return diffDays < 30;
+                if (filterVal === 'currMonth') return d.getMonth() === maxDate.getMonth() && d.getFullYear() === maxDate.getFullYear();
+                if (filterVal === 'currQuarter') {
+                    const qMax = Math.floor(maxDate.getMonth() / 3);
+                    const qD = Math.floor(d.getMonth() / 3);
+                    return qMax === qD && d.getFullYear() === maxDate.getFullYear();
+                }
+                if (filterVal === 'currYear') return d.getFullYear() === maxDate.getFullYear();
+                // [FIX] Obsługa konkretnego miesiąca — format wartości: "month_YYYY-MM"
+                if (filterVal.startsWith('month_')) {
+                    const [, key] = filterVal.split('_');
+                    const [fy, fm] = key.split('-');
+                    return d.getFullYear() === parseInt(fy) && (d.getMonth()+1) === parseInt(fm);
+                }
+                return true;
+            });
+
+            if (filteredData.length === 0) return;
+
+            let totalMinutes = 0, maxDayMin = 0, maxDayObj = null;
+            let wkdyTot = 0, wkdyCnt = 0, wkndTot = 0, wkndCnt = 0;
+
+            // [FIX] appTotals — teraz przechowuje { min, category } zamiast samej liczby minut
+            const appTotals = {};
+            const dNames = daysOfWeekMap[currentLang];
+
+            filteredData.forEach(row => {
+                const d = new Date(row.date);
+                const dayIdx = d.getDay();
+                const isWknd = (dayIdx === 0 || dayIdx === 6);
+                const labelStr = `${('0'+d.getDate()).slice(-2)}.${('0'+(d.getMonth()+1)).slice(-2)} (${dNames[dayIdx]})`;
+
+                totalMinutes += row.total_min;
+                if (row.total_min > maxDayMin) { maxDayMin = row.total_min; maxDayObj = { label: labelStr, val: row.total_min }; }
+                if (isWknd) { wkndTot += row.total_min; wkndCnt++; } else { wkdyTot += row.total_min; wkdyCnt++; }
+
+                // [FIX] Obsługa obu formatów payload: nowy { min, category } i stary (liczba) dla backward compat
+                for (const app in row.apps) {
+                    const appData = row.apps[app];
+                    const appMin = (typeof appData === 'object') ? (appData.min || 0) : (appData || 0);
+                    const appCat = (typeof appData === 'object') ? (appData.category || 'other') : 'other';
+
+                    if (!appTotals[app]) appTotals[app] = { min: 0, category: appCat };
+                    appTotals[app].min += appMin;
+                }
+            });
+
+            // Chart data prep
+            const aggregateByMonth = filteredData.length > 35;
+            let chartLabels = [], chartData = [], chartBgColors = [], chartBorderColors = [];
+            currentFilteredDataset = [];
+
+            if (!aggregateByMonth) {
+                filteredData.forEach(row => {
+                    const d = new Date(row.date);
+                    const labelStr = `${('0'+d.getDate()).slice(-2)}.${('0'+(d.getMonth()+1)).slice(-2)} (${dNames[d.getDay()]})`;
+                    const isWknd = (d.getDay() === 0 || d.getDay() === 6);
+                    chartLabels.push(labelStr); chartData.push(row.total_min);
+                    chartBgColors.push(isWknd ? 'rgba(226, 114, 91, 0.4)' : 'rgba(56, 189, 248, 0.25)');
+                    chartBorderColors.push(isWknd ? 'rgba(226, 114, 91, 0.9)' : 'rgba(56, 189, 248, 0.85)');
+                    currentFilteredDataset.push(row);
+                });
+                document.getElementById('chartContainer').style.minWidth = `${Math.max(800, filteredData.length * 38)}px`;
+            } else {
+                const monthlyGroups = {};
+                filteredData.forEach(row => {
+                    const d = new Date(row.date);
+                    const key = `${d.getFullYear()}-${('0'+(d.getMonth()+1)).slice(-2)}`;
+                    if (!monthlyGroups[key]) monthlyGroups[key] = { total: 0, apps: {} };
+                    monthlyGroups[key].total += row.total_min;
+                    for (const app in row.apps) {
+                        const appData = row.apps[app];
+                        const appMin = (typeof appData === 'object') ? (appData.min || 0) : (appData || 0);
+                        const appCat = (typeof appData === 'object') ? (appData.category || 'other') : 'other';
+                        if (!monthlyGroups[key].apps[app]) monthlyGroups[key].apps[app] = { min: 0, category: appCat };
+                        monthlyGroups[key].apps[app].min += appMin;
+                    }
+                });
+                Object.keys(monthlyGroups).sort().forEach(key => {
+                    const [year, month] = key.split('-');
+                    const labelStr = `${mNames[currentLang][parseInt(month)-1]} ${year}`;
+                    chartLabels.push(labelStr); chartData.push(monthlyGroups[key].total);
+                    chartBgColors.push('rgba(99, 102, 241, 0.25)'); chartBorderColors.push('rgba(99, 102, 241, 0.85)');
+                    currentFilteredDataset.push({ date: labelStr, total_min: monthlyGroups[key].total, apps: monthlyGroups[key].apps });
+                });
+                document.getElementById('chartContainer').style.minWidth = '100%';
+            }
+
+            document.getElementById('periodLabel').innerText = `${filteredData[0].date} / ${filteredData[filteredData.length-1].date}`;
+            document.getElementById('daysCount').innerText = filteredData.length;
+            document.getElementById('globalTotal').innerText = formatMinsToStr(totalMinutes);
+            document.getElementById('dailyAvg').innerText = formatMinsToStr(totalMinutes / filteredData.length);
+
+            const ratio = ((totalMinutes / (filteredData.length * 16 * 60)) * 100).toFixed(1);
+            document.getElementById('screenRatio').innerText = `~${ratio}%`;
+            document.getElementById('screenRatioBar').style.width = `${Math.min(ratio, 100)}%`;
+            document.getElementById('peakValue').innerText = formatMinsToStr(maxDayObj.val);
+            document.getElementById('peakDate').innerText = `Log: ${maxDayObj.label}`;
+
+            const sortedApps = Object.entries(appTotals).sort((a, b) => b[1].min - a[1].min);
+            if (sortedApps.length > 0) {
+                document.getElementById('topAppTitle').innerText = sortedApps[0][0];
+                document.getElementById('topAppTime').innerText = `Cumul: ~${(sortedApps[0][1].min/60).toFixed(1)}h`;
+            }
+
+            // [FIX] top3List — DOM manipulation zamiast innerHTML z danymi zewnętrznymi (XSS prevention)
+            const top3Container = document.getElementById('top3List');
+            top3Container.innerHTML = '';
+            sortedApps.slice(0, 5).forEach((app, i) => {
+                const col = topColors[i] || '#64748b';
+                const row = document.createElement('div');
+                row.className = 'flex justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/40';
+
+                const left = document.createElement('span');
+                left.className = 'flex items-center gap-2 font-semibold text-slate-300';
+
+                const dot = document.createElement('div');
+                dot.className = 'w-2 h-2 rounded-full';
+                dot.style.backgroundColor = col;
+                dot.style.boxShadow = `0 0 6px ${col}`;
+
+                const label = document.createTextNode(` 0${i+1}. ${app[0]}`);
+                left.appendChild(dot);
+                left.appendChild(label);
+
+                const right = document.createElement('span');
+                right.className = 'font-bold';
+                right.style.color = col;
+                right.innerText = `${(app[1].min/60).toFixed(1)} h`;
+
+                row.appendChild(left);
+                row.appendChild(right);
+                top3Container.appendChild(row);
+            });
+
+            // [FIX] ROI bar — kategorie z danych (dynamiczne z Gemini), nie hardcoded lista
+            const catTotals = {};
+            sortedApps.forEach(([appName, appData]) => {
+                const cat = appData.category || 'other';
+                if (!catTotals[cat]) catTotals[cat] = 0;
+                catTotals[cat] += appData.min;
+            });
+
+            const roiContainer = document.getElementById('roiBarContainer');
+            const roiLegend = document.getElementById('roiLegend');
+            roiContainer.innerHTML = '';
+            roiLegend.innerHTML = '';
+
+            Object.entries(catTotals).sort((a,b) => b[1]-a[1]).forEach(([cat, mins]) => {
+                const p = (mins / totalMinutes * 100) || 0;
+                if (p <= 0) return;
+                const colors = CATEGORY_COLORS[cat] || CATEGORY_COLORS['other'];
+                const catLabel = trans(`cat_${cat}`);
+
+                const barDiv = document.createElement('div');
+                barDiv.className = `bg-gradient-to-r ${colors.bar} h-full`;
+                barDiv.style.width = `${p}%`;
+                roiContainer.appendChild(barDiv);
+
+                const legendItem = document.createElement('span');
+                legendItem.className = 'flex items-center gap-1';
+                const legendDot = document.createElement('div');
+                legendDot.className = `w-1.5 h-1.5 rounded-full ${colors.dot}`;
+                legendItem.appendChild(legendDot);
+                legendItem.appendChild(document.createTextNode(` ${catLabel} (~${Math.round(p)}%)`));
+                roiLegend.appendChild(legendItem);
+            });
+
+            let wAvg = wkdyCnt > 0 ? wkdyTot/wkdyCnt : 0;
+            let eAvg = wkndCnt > 0 ? wkndTot/wkndCnt : 0;
+            document.getElementById('weekdayAvg').innerText = formatMinsToStr(wAvg);
+            document.getElementById('weekendAvg').innerText = formatMinsToStr(eAvg);
+            if (wAvg > 0) {
+                const d = ((eAvg - wAvg) / wAvg * 100).toFixed(1);
+                document.getElementById('weekendAnomaly').innerText = d > 0 ? `+${d}%` : `${d}%`;
+                const mx = Math.max(wAvg, eAvg);
+                document.getElementById('weekdayBar').style.width = `${(wAvg/mx)*100}%`;
+                document.getElementById('weekendBar').style.width = `${(eAvg/mx)*100}%`;
+            }
+
+            if (chartInstances.daily) chartInstances.daily.destroy();
+            if (chartInstances.app) chartInstances.app.destroy();
+
+            const topLabelsPlugin = {
+                id: 'tLP', afterDatasetsDraw(chart) {
+                    const { ctx, data } = chart; ctx.save();
+                    ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#e2e8f0';
+                    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+                    chart.getDatasetMeta(0).data.forEach((bar, i) => {
+                        let v = data.datasets[0].data[i];
+                        if (v > 0) { let h = Math.floor(v/60); ctx.fillText(h > 0 ? `${h}h` : `${v}m`, bar.x, bar.y - 6); }
+                    });
+                    ctx.restore();
+                }
+            };
+
+            chartInstances.daily = new Chart(document.getElementById('dailyChart'), {
+                type: 'bar', plugins: [topLabelsPlugin],
+                data: { labels: chartLabels, datasets: [{ data: chartData, backgroundColor: chartBgColors, borderColor: chartBorderColors, borderWidth: 1.5, borderRadius: 3, barThickness: aggregateByMonth ? 45 : 24 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, layout: { padding: { top: 25 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            enabled: true,
+                            backgroundColor: 'rgba(15, 23, 42, 0.98)',
+                            titleFont: { family: 'monospace', size: 13, weight: 'bold' },
+                            bodyFont: { family: 'monospace', size: 12 },
+                            borderColor: 'rgba(56, 189, 248, 0.4)', borderWidth: 1, padding: 12,
+                            callbacks: {
+                                label: function(context) {
+                                    const record = currentFilteredDataset[context.dataIndex];
+                                    // [FIX] Obsługa nowego formatu apps { min, category }
+                                    const sortedDayApps = Object.entries(record.apps)
+                                        .map(([name, data]) => [name, (typeof data === 'object') ? data.min : data])
+                                        .sort((a,b) => b[1]-a[1]);
+                                    let lines = [`Total: ${formatMinsToStr(context.raw)}`, '----------------'];
+                                    let hiddenSum = 0;
+                                    sortedDayApps.forEach((a, idx) => {
+                                        if (idx < 8) lines.push(`${a[0]}: ${formatMinsToStr(a[1])}`);
+                                        else hiddenSum += a[1];
+                                    });
+                                    if (hiddenSum > 0) lines.push(`[+] ${trans('otherApps')}: ${formatMinsToStr(hiddenSum)}`);
+                                    return lines;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { min: 0, grid: { color: 'rgba(255, 255, 255, 0.05)', borderDash: [3, 6] }, ticks: { callback: v => (v/60).toFixed(1)+'h', color: '#64748b', font: { family: 'monospace', size: 9 } } },
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { family: 'monospace', size: 10 } } }
+                    }
+                }
+            });
+
+            let pLbl = [], pDat = [], oMin = 0;
+            sortedApps.forEach((a, i) => {
+                if (i < 5) { pLbl.push(a[0]); pDat.push(a[1].min); }
+                else { oMin += a[1].min; }
+            });
+            if (oMin > 0) { pLbl.push(trans('otherApps')); pDat.push(oMin); }
+
+            chartInstances.app = new Chart(document.getElementById('appChart'), {
+                type: 'doughnut',
+                data: { labels: pLbl, datasets: [{ data: pDat, backgroundColor: ['#f43f5e', '#f97316', '#10b981', '#06b6d4', '#8b5cf6', '#475569'], borderWidth: 2, borderColor: '#0f172a' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 15, color: '#cbd5e1', font: { size: 11, family: 'monospace' } } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ~${(ctx.raw/60).toFixed(1)}h` } } } }
+            });
+        }
+
+        window.addEventListener('DOMContentLoaded', bootstrapApp);
+    </script>
+</body>
+</html>
