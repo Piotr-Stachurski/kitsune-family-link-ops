@@ -6,6 +6,8 @@
     <title>Kitsune - Family Link Ops</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #020617; }
 
@@ -127,6 +129,16 @@
                     <span class="inline">Share</span>
                 </button>
 
+                <button onclick="openSheetsSSoT()" class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2a4 4 0 014-4h4M5 7h14M5 12h14M5 17h6" /></svg>
+                  <span data-i18n="openSheets">Arkusz</span>
+                </button>
+
+                <button id="thresholdBtn" onclick="openThresholdModal()"
+                  class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  Limit
+                </button>
                 <button onclick="toggleLang()" id="langBtn" class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors">
                     PL / EN
                 </button>
@@ -135,8 +147,8 @@
 
         <div id="userTabsContainer" class="flex gap-2 overflow-x-auto custom-scroll pb-1"></div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-4">
-            <div class="bg-slate-900 rounded-2xl shadow-xl p-5 border border-slate-800/80 relative overflow-hidden">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mt-4">
+            <div class="bg-slate-900 rounded-2xl shadow-xl p-5 border border-slate-800/80 relative overflow-hidden lg:col-span-2">
                 <div class="absolute -top-10 -right-10 w-32 h-32 bg-cyan-600/20 rounded-full blur-2xl"></div>
                 <h3 class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1"><span data-i18n="globalVol">Globalny wolumen</span> (<span id="daysCount">0</span> <span data-i18n="days">dni</span>)</h3>
                 <p id="globalTotal" class="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">0h 0m</p>
@@ -170,6 +182,11 @@
                 <p id="topAppTitle" class="text-xl font-extrabold text-indigo-400 mt-1 truncate">...</p>
                 <p id="topAppTime" class="text-[10px] text-slate-400 mt-0.5 font-mono">Cumul: 0h</p>
             </div>
+            <div id="trendCard" class="bg-slate-900 rounded-2xl shadow-xl p-4 border border-slate-800/80 hidden">
+  <h3 data-i18n="trendTitle" class="text-xs font-bold text-slate-500 uppercase tracking-widest">Zmiana w okresie</h3>
+  <p id="trendValue" class="text-3xl font-extrabold mt-1">—</p>
+  <p data-i18n="trendHint" id="trendLabel" class="text-[10px] text-slate-400 mt-0.5 font-mono">Druga połowa vs pierwsza</p>
+</div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -242,13 +259,17 @@
         // 1. NATYWNY ODCZYT PARAMETRÓW URL (Bezawaryjny Routing)
         // ========================================================
         google.script.url.getLocation(function(location) {
-            if (location.parameter && location.parameter.role === 'viewer') {
-                const fab = document.getElementById('uploadFab');
-                const shareBtn = document.getElementById('openShareBtn');
-                if (fab) fab.remove();
-                if (shareBtn) shareBtn.remove();
-            }
-        });
+    if (location.parameter && location.parameter.role === 'viewer') {
+        const fab = document.getElementById('uploadFab');
+        const shareBtn = document.getElementById('openShareBtn');
+        const sheetsBtn = document.querySelector('[onclick="openSheetsSSoT()"]');
+        const thresholdBtn = document.getElementById('thresholdBtn');
+        if (fab) fab.remove();
+        if (shareBtn) shareBtn.remove();
+        if (sheetsBtn) sheetsBtn.remove();
+        if (thresholdBtn) thresholdBtn.remove();
+    }
+});
 
         // ========================================================
         // 2. LOGIKA UDOSTĘPNIANIA
@@ -298,6 +319,12 @@
         let currentFilteredDataset = [];
         let chartInstances = {};
         let currentLang = 'pl';
+        let thresholds = {};
+        let pollingInterval = null;
+        let lastKnownUpdate = null;
+        let pendingUploadFile = null;
+
+
 
         const DICT = {
             'pl': {
@@ -305,7 +332,7 @@
                 'screenRatioNote': '* bazuje na 16h/dzień dostępnego czasu',
                 'dailyAvg': 'Średnia alokacja dobowa', 'peak': 'Peak (Rekord)', 'mainThread': 'Główny wątek',
                 'timelineLog': '📊 Log osi czasu (Dzień po dniu)', 'timelineHint': 'Najedź na słupek, aby zobaczyć aplikacje.',
-                'behavioral': '⚡ Analiza Behawioralna', 'roi': 'Podział funkcjonalny (ROI)',
+                'behavioral': '⚡ Analiza Behawioralna', 'roi': 'Struktura czasu',
                 'weekendAnomaly': 'Anomalia Weekendowa', 'weekdays': 'Dni rob.', 'weekends': 'Weekend',
                 'topResource': '🏆 Lokacja zasobów czasu', 'pieChart': '🍩 Pełny profil aplikacji',
                 // [FIX] Kategorie dynamiczne z Gemini — etykiety UI
@@ -315,6 +342,10 @@
                 'shareTitle': 'Udostępnij Dostęp', 'shareMaster': 'Link Administratora (Pełny dostęp):', 'shareViewer': 'Link Obserwatora (Tylko do odczytu):',
                 'copyBtn': 'Kopiuj', 'shareHint': 'Ten link wyłącza możliwość dodawania plików PDF i zarządzania systemem.',
                 'uploadQueued': 'Plik w kolejce do przetworzenia. Dane pojawią się w dashboardzie za kilka minut.',
+                'uploadModalTitle': 'Czyje dane wgrywasz?', 'newChild': 'Nowe dziecko',
+                'confirmNewChild': 'Potwierdź', 'invalidChildName': 'Nazwa musi zawierać tylko litery (min. 2 znaki).',
+                'trendTitle': 'Zmiana w okresie', 'trendHint': 'Druga połowa vs pierwsza',
+                'openSheets': 'Arkusz',
                 'monthPrefix': ''
             },
             'en': {
@@ -322,7 +353,7 @@
                 'screenRatioNote': '* based on 16h/day available time',
                 'dailyAvg': 'Daily Average Allocation', 'peak': 'Peak (Record)', 'mainThread': 'Main Thread',
                 'timelineLog': '📊 Timeline Log', 'timelineHint': 'Hover/click a bar for app details.',
-                'behavioral': '⚡ Behavioral Analysis', 'roi': 'Functional Breakdown (ROI)',
+                'behavioral': '⚡ Behavioral Analysis', 'roi': 'Time Allocation',
                 'weekendAnomaly': 'Weekend Anomaly', 'weekdays': 'Weekdays', 'weekends': 'Weekends',
                 'topResource': '🏆 Resource Allocation (Top)', 'pieChart': '🍩 Full App Profile',
                 'cat_entertainment': 'Entertainment', 'cat_social': 'Social', 'cat_education': 'Edu', 'cat_other': 'Other',
@@ -331,6 +362,10 @@
                 'shareTitle': 'Share Access', 'shareMaster': 'Admin Link (Full Access):', 'shareViewer': 'Viewer Link (Read-Only):',
                 'copyBtn': 'Copy', 'shareHint': 'This link disables PDF uploading and system management.',
                 'uploadQueued': 'File queued for processing. Data will appear in the dashboard in a few minutes.',
+                'uploadModalTitle': 'Whose data are you uploading?', 'newChild': 'New child',
+                'confirmNewChild': 'Confirm', 'invalidChildName': 'Name must contain only letters (min. 2 characters).',
+                'trendTitle': 'Period Change', 'trendHint': 'Second half vs first',
+                'openSheets': 'Sheet',
                 'monthPrefix': ''
             }
         };
@@ -387,48 +422,126 @@
         // [FIX] handleFileUpload — async UX.
         // Plik jest wrzucany do kolejki (Dropzone). Trigger czasowy ogarnia przetwarzanie.
         // Dashboard NIE przeładowuje się automatycznie — użytkownik dostaje komunikat.
-        function handleFileUpload(inputElement) {
-            const file = inputElement.files[0];
-            if (!file) return;
+        
+    function handleFileUpload(inputElement) {
+    const file = inputElement.files[0];
+    if (!file) return;
 
-            // [FIX] Walidacja nazwy pliku — regex zamiast includes('_')
-            const validName = /^[A-Za-zÀ-žĄąĆćĘęŁłŃńÓóŚśŹźŻż]+[_ ].+\.pdf$/i.test(file.name);
-            if (!validName) {
-                alert("Nieprawidłowa nazwa pliku.\nWymagany format: Imię_Data.pdf\nPrzykład: Zuzia_2024-03.pdf");
-                inputElement.value = '';
-                return;
-            }
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+        alert(currentLang === 'pl' ? "Tylko pliki PDF są obsługiwane." : "Only PDF files supported.");
+        return;
+    }
 
-            const fab = document.getElementById('uploadFab');
-            const originalBtn = fab.querySelector('button');
-            originalBtn.disabled = true;
-            originalBtn.classList.add('opacity-50');
+    // Trzymaj plik w pamięci — wyślemy po wyborze dziecka w modalu
+    pendingUploadFile = file;
+    inputElement.value = '';
 
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                google.script.run
-                    .withSuccessHandler(function(response) {
-                        originalBtn.disabled = false;
-                        originalBtn.classList.remove('opacity-50');
-                        inputElement.value = '';
+    openUploadModal();
+}
 
-                        if (response.success) {
-                            // [FIX] Async — pokazujemy komunikat zamiast przeładowywać dashboard
-                            showToast(trans('uploadQueued'), 'success');
-                        } else {
-                            showToast("Błąd: " + response.message, 'error');
-                        }
-                    })
-                    .withFailureHandler(function(err) {
-                        originalBtn.disabled = false;
-                        originalBtn.classList.remove('opacity-50');
-                        inputElement.value = '';
-                        showToast("Błąd połączenia z GAS: " + err.message, 'error');
-                    })
-                    .uploadFileFromFrontend(e.target.result, file.name);
-            };
-            reader.readAsDataURL(file);
-        }
+function openUploadModal() {
+    document.getElementById('uploadFilenameLabel').innerText =
+        (currentLang === 'pl' ? 'Plik: ' : 'File: ') + pendingUploadFile.name;
+    document.getElementById('uploadModalError').classList.add('hidden');
+    document.getElementById('newChildInputWrap').classList.add('hidden');
+    document.getElementById('newChildName').value = '';
+
+    // Renderuj przyciski istniejących dzieci
+    const childSelect = document.getElementById('uploadChildSelect');
+    childSelect.innerHTML = '';
+
+    const uniqueUsers = [...new Set(globalData.map(item => item.user))];
+    if (uniqueUsers.length === 0) {
+        const info = document.createElement('p');
+        info.className = 'text-xs font-mono text-slate-500 text-center py-3';
+        info.innerText = currentLang === 'pl'
+            ? 'Brak profili — dodaj nowe dziecko.'
+            : 'No profiles yet — add a new child.';
+        childSelect.appendChild(info);
+        // Auto-rozwiń input nowego dziecka
+        document.getElementById('newChildInputWrap').classList.remove('hidden');
+    } else {
+        uniqueUsers.forEach(user => {
+            const btn = document.createElement('button');
+            btn.className = 'w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded-lg p-3 text-sm font-mono text-slate-200 transition-colors flex items-center justify-between';
+            btn.innerHTML = `<span>${user}</span><span class="text-cyan-400">→</span>`;
+            btn.onclick = () => submitUploadForChild(user);
+            childSelect.appendChild(btn);
+        });
+    }
+
+    const modal = document.getElementById('uploadModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeUploadModal() {
+    const modal = document.getElementById('uploadModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function toggleNewChildInput() {
+    const wrap = document.getElementById('newChildInputWrap');
+    wrap.classList.toggle('hidden');
+    if (!wrap.classList.contains('hidden')) {
+        document.getElementById('newChildName').focus();
+    }
+}
+
+function confirmNewChild() {
+    const rawName = document.getElementById('newChildName').value.trim();
+    const errorEl = document.getElementById('uploadModalError');
+
+    // Walidacja: tylko litery (PL chars OK), min. 2 znaki
+    if (!/^[A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż]{2,}$/.test(rawName)) {
+        errorEl.innerText = trans('invalidChildName');
+        errorEl.classList.remove('hidden');
+        return;
+    }
+
+    // Title Case normalization: "ciastek" → "Ciastek"
+    const normalized = rawName.charAt(0).toUpperCase() + rawName.slice(1).toLowerCase();
+    submitUploadForChild(normalized);
+}
+
+function submitUploadForChild(childName) {
+    if (!pendingUploadFile) {
+        closeUploadModal();
+        return;
+    }
+
+    // Konstruuj nazwę pliku: {ChildName}_{timestamp}.pdf
+    // Timestamp zapewnia unikalność jeśli user wgrywa kilka plików dla tego samego dziecka tego samego dnia
+    const ts = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const newFilename = `${childName}_${ts}.pdf`;
+
+    closeUploadModal();
+    showUploadProgress();
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        google.script.run
+            .withSuccessHandler(function(response) {
+                if (response.success) {
+                    startPolling();
+                } else {
+                    hideUploadProgress();
+                    showToast("Błąd: " + response.message, 'error');
+                }
+            })
+            .withFailureHandler(function(err) {
+                hideUploadProgress();
+                showToast("Błąd połączenia z GAS: " + err.message, 'error');
+            })
+            .uploadFileFromFrontend(e.target.result, newFilename);
+    };
+    reader.readAsDataURL(pendingUploadFile);
+// Reset input dopiero PO odczytaniu pliku przez FileReader
+const inputEl = document.getElementById('pdfUploader');
+if (inputEl) inputEl.value = '';
+pendingUploadFile = null;
+}
 
         // [FIX] Toast notification — zastępuje alert() przy uploadzie
         function showToast(message, type) {
@@ -521,11 +634,16 @@
             });
 
             updateStaticText();
-
-            // [FIX] Buduj dynamiczny filtr miesięcy po załadowaniu danych
             buildMonthFilter(globalData);
-
-            renderDashboardForUser(uniqueUsers[0]);
+            google.script.run
+              .withSuccessHandler(function(json) {
+                thresholds = JSON.parse(json || '{}');
+                renderDashboardForUser(uniqueUsers[0]);
+              })
+              .withFailureHandler(function() {
+                renderDashboardForUser(uniqueUsers[0]);
+              })
+              .getThresholds();
         }
 
         // [FIX] buildMonthFilter() — generuje opcje konkretnych miesięcy z danych w Sheets
@@ -815,10 +933,39 @@
                                     return lines;
                                 }
                             }
-                        }
+                        },
+                        annotation: thresholds[userName] ? {
+  annotations: {
+    thresholdLine: {
+      type: 'line',
+      yMin: thresholds[userName],
+      yMax: thresholds[userName],
+      borderColor: 'rgba(239, 68, 68, 0.8)',
+      borderWidth: 1.5,
+      borderDash: [6, 3],
+      label: {
+        content: 'Limit: ' + formatMinsToStr(thresholds[userName]),
+        enabled: true,
+        position: 'end',
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+        color: '#ef4444',
+        font: { family: 'monospace', size: 10 }
+      }
+    }
+  }
+} : {},
                     },
                     scales: {
-                        y: { min: 0, grid: { color: 'rgba(255, 255, 255, 0.05)', borderDash: [3, 6] }, ticks: { callback: v => (v/60).toFixed(1)+'h', color: '#64748b', font: { family: 'monospace', size: 9 } } },
+                        y: {
+  min: 0,
+  grid: { color: 'rgba(255, 255, 255, 0.05)', borderDash: [3, 6] },
+  ticks: { callback: v => (v/60).toFixed(1)+'h', color: '#64748b', font: { family: 'monospace', size: 9 } },
+  ...(thresholds[userName] ? {
+    afterDataLimits: function(axis) {
+      axis.max = Math.max(axis.max, thresholds[userName] + 30);
+    }
+  } : {})
+},
                         x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { family: 'monospace', size: 10 } } }
                     }
                 }
@@ -836,9 +983,320 @@
                 data: { labels: pLbl, datasets: [{ data: pDat, backgroundColor: ['#f43f5e', '#f97316', '#10b981', '#06b6d4', '#8b5cf6', '#475569'], borderWidth: 2, borderColor: '#0f172a' }] },
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 15, color: '#cbd5e1', font: { size: 11, family: 'monospace' } } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ~${(ctx.raw/60).toFixed(1)}h` } } } }
             });
+            // W2 — Trend card
+            const trend = calcTrend(filteredData);
+            const trendCard = document.getElementById('trendCard');
+            const trendValue = document.getElementById('trendValue');
+            if (trend && filteredData.length >= 4) {
+                trendCard.classList.remove('hidden');
+                const isUp = trend.direction === 'up';
+                const isFlat = trend.direction === 'flat';
+                trendValue.className = 'text-3xl font-extrabold mt-1 ' + (isFlat ? 'text-slate-400' : isUp ? 'text-red-400' : 'text-emerald-400');
+                trendValue.innerText = (isUp ? '▲ +' : isFlat ? '— ' : '▼ ') + Math.abs(trend.delta) + '%';
+            } else {
+                trendCard.classList.add('hidden');
+            }
         }
+        // ==========================================
+// W1 — THRESHOLD MODAL LOGIC
+// ==========================================
 
+function openThresholdModal() {
+  const activeTab = document.querySelector('.tab-active');
+  const userName = activeTab ? activeTab.innerText : '';
+  document.getElementById('thresholdModalLabel').innerText = 'Dla: ' + userName;
+  document.getElementById('thresholdInput').value = thresholds[userName] || '';
+  document.getElementById('thresholdError').classList.add('hidden');
+  const modal = document.getElementById('thresholdModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeThresholdModal() {
+  const modal = document.getElementById('thresholdModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+function submitThreshold() {
+  const activeTab = document.querySelector('.tab-active');
+  const userName = activeTab ? activeTab.innerText : '';
+  const val = parseInt(document.getElementById('thresholdInput').value);
+  const errorEl = document.getElementById('thresholdError');
+
+  if (isNaN(val) || val < 0 || val > 1440) {
+    errorEl.innerText = 'Podaj liczbę minut od 0 do 1440.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  const btn = document.getElementById('thresholdSaveBtn');
+  btn.disabled = true;
+  btn.innerText = 'Zapisywanie...';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.innerText = 'Zapisz limit';
+      if (res.success) {
+        thresholds[userName] = val;
+        closeThresholdModal();
+        renderDashboardForUser(userName);
+        showToast('Limit zapisany: ' + val + ' min (' + (val/60).toFixed(1) + 'h)', 'success');
+      } else {
+        errorEl.innerText = res.message;
+        errorEl.classList.remove('hidden');
+      }
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.innerText = 'Zapisz limit';
+      errorEl.innerText = 'Błąd połączenia z GAS.';
+      errorEl.classList.remove('hidden');
+    })
+    .saveThreshold(userName, val);
+}
+
+// ==========================================
+// W2 — TREND CARD HELPER
+// ==========================================
+
+function calcTrend(filteredData) {
+  if (filteredData.length < 4) return null;
+  const half = Math.floor(filteredData.length / 2);
+  const firstHalf = filteredData.slice(0, half);
+  const secondHalf = filteredData.slice(half);
+  const avgFirst = firstHalf.reduce((s, r) => s + r.total_min, 0) / firstHalf.length;
+  const avgSecond = secondHalf.reduce((s, r) => s + r.total_min, 0) / secondHalf.length;
+  const delta = ((avgSecond - avgFirst) / avgFirst * 100);
+  return { delta: delta.toFixed(1), direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat' };
+}
+// ==========================================
+// AUTO-REFRESH POLLING
+// ==========================================
+
+function startPolling() {
+  // Reset jeśli jakiś poll już chodzi
+  if (pollingInterval) clearInterval(pollingInterval);
+  
+  // Najpierw pobierz baseline — aktualny stan przed uploadem
+  google.script.run
+    .withSuccessHandler(function(initialUpdate) {
+      lastKnownUpdate = initialUpdate;
+      
+      let pollCount = 0;
+      const MAX_POLLS = 24; // 24 × 10s = 4 minuty safety timeout
+      
+      pollingInterval = setInterval(function() {
+        pollCount++;
+        
+        if (pollCount > MAX_POLLS) {
+          stopPolling();
+          showToast(currentLang === 'pl' 
+            ? 'Timeout — odśwież stronę ręcznie żeby zobaczyć dane.' 
+            : 'Timeout — refresh manually to see data.', 'error');
+          return;
+        }
+        
+        google.script.run
+          .withSuccessHandler(function(currentUpdate) {
+            if (currentUpdate && currentUpdate !== lastKnownUpdate) {
+              // Nowe dane wykryte! Pobierz i re-renderuj
+              stopPolling();
+              hideUploadProgress();
+              reloadDashboardData();
+            }
+          })
+          .withFailureHandler(function() {
+            // Cicho ignoruj — następny poll spróbuje ponownie
+          })
+          .getLastUpdateTime();
+      }, 10000); // co 10 sekund
+    })
+    .getLastUpdateTime();
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+  }
+}
+
+function reloadDashboardData() {
+  google.script.run
+    .withSuccessHandler(function(jsonString) {
+      try {
+        globalData = JSON.parse(jsonString);
+        buildMonthFilter(globalData);
+        const activeTab = document.querySelector('.tab-active');
+        if (activeTab) {
+          renderDashboardForUser(activeTab.innerText);
+        } else if (globalData.length > 0) {
+          // Pierwsze dane — zbuduj zakładki
+          const uniqueUsers = [...new Set(globalData.map(item => item.user))];
+          const tabsContainer = document.getElementById('userTabsContainer');
+          tabsContainer.innerHTML = '';
+          uniqueUsers.forEach((user, idx) => {
+            const btn = document.createElement('button');
+            btn.innerText = user;
+            btn.className = `px-5 py-2.5 text-sm font-mono rounded-t-lg transition-colors ${idx === 0 ? 'tab-active' : 'text-slate-400 hover:text-slate-200'}`;
+            btn.onclick = (e) => switchTab(user, e.target);
+            tabsContainer.appendChild(btn);
+          });
+          renderDashboardForUser(uniqueUsers[0]);
+        }
+        showToast(currentLang === 'pl' 
+          ? '✓ Dane zaktualizowane!' 
+          : '✓ Data updated!', 'success');
+      } catch (e) {
+        showToast('Błąd ładowania danych.', 'error');
+      }
+    })
+    .getTelemetryData();
+}
+
+// ==========================================
+// UPLOAD PROGRESS UI
+// ==========================================
+
+function showUploadProgress() {
+  // Zmień FAB w spinner
+  const fab = document.getElementById('uploadFab');
+  if (fab) {
+    fab.innerHTML = `
+      <div class="bg-purple-600 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-[0_0_15px_rgba(168,85,247,0.7)] animate-pulse">
+        <div class="loader" style="border-color: rgba(255,255,255,0.3); border-top-color: #ffffff;"></div>
+      </div>
+    `;
+  }
+  
+  // Persistent banner u góry
+  const existing = document.getElementById('uploadBanner');
+  if (existing) existing.remove();
+  
+  const banner = document.createElement('div');
+  banner.id = 'uploadBanner';
+  banner.className = 'fixed top-4 left-1/2 -translate-x-1/2 z-[90] bg-slate-900 border border-purple-700/60 rounded-xl px-5 py-3 shadow-2xl flex items-center gap-3';
+  banner.innerHTML = `
+    <div class="loader" style="border-color: rgba(168,85,247,0.3); border-top-color: #a855f7; width: 20px; height: 20px;"></div>
+    <div>
+      <p class="text-sm font-mono font-bold text-purple-300" id="uploadBannerTitle">${currentLang === 'pl' ? 'Analizuję plik...' : 'Analyzing file...'}</p>
+      <p class="text-[10px] font-mono text-slate-400">${currentLang === 'pl' ? 'Gemini przetwarza dane' : 'Gemini processing data'} <span id="uploadDots">.</span></p>
+    </div>
+  `;
+  document.body.appendChild(banner);
+  
+  // Animacja kropek
+  let dotCount = 1;
+  banner.dataset.dotInterval = setInterval(() => {
+    dotCount = (dotCount % 3) + 1;
+    const dotsEl = document.getElementById('uploadDots');
+    if (dotsEl) dotsEl.innerText = '.'.repeat(dotCount);
+  }, 500);
+}
+
+function hideUploadProgress() {
+  // Przywróć FAB
+  const fab = document.getElementById('uploadFab');
+  if (fab) {
+    fab.innerHTML = `
+      <input type="file" id="pdfUploader" accept="application/pdf" class="hidden" onchange="handleFileUpload(this)">
+      <button onclick="document.getElementById('pdfUploader').click()" class="bg-blue-600 hover:bg-blue-500 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-[0_0_15px_rgba(37,99,235,0.5)] transition-transform hover:scale-105 active:scale-95">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+        </svg>
+      </button>
+    `;
+  }
+  
+  // Usuń banner
+  const banner = document.getElementById('uploadBanner');
+  if (banner) {
+    if (banner.dataset.dotInterval) clearInterval(banner.dataset.dotInterval);
+    banner.remove();
+  }
+}
+// ESC key — zamknij dowolny otwarty modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const uploadModal = document.getElementById('uploadModal');
+    const thresholdModal = document.getElementById('thresholdModal');
+    const shareModal = document.getElementById('shareModal');
+    if (uploadModal && !uploadModal.classList.contains('hidden')) closeUploadModal();
+    if (thresholdModal && !thresholdModal.classList.contains('hidden')) closeThresholdModal();
+    if (shareModal && !shareModal.classList.contains('hidden')) closeShareModal();
+  }
+});
+function openSheetsSSoT() {
+  google.script.run
+    .withSuccessHandler(function(url) {
+      if (url) {
+        window.open(url, '_blank');
+      } else {
+        showToast(currentLang === 'pl' ? 'Nie można otworzyć arkusza.' : 'Cannot open spreadsheet.', 'error');
+      }
+    })
+    .withFailureHandler(function() {
+      showToast('Błąd połączenia z GAS.', 'error');
+    })
+    .getSheetsUrl();
+}
         window.addEventListener('DOMContentLoaded', bootstrapApp);
     </script>
+    <!-- W1 — THRESHOLD MODAL -->
+<div id="thresholdModal" class="fixed inset-0 bg-slate-950/80 z-50 hidden flex-col items-center justify-center p-4 backdrop-blur-sm">
+  <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl relative">
+    <button onclick="closeThresholdModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+    </button>
+    <h2 class="text-lg font-bold text-slate-100 mb-1">Limit ekranu</h2>
+    <p id="thresholdModalLabel" class="text-xs font-mono text-cyan-400 mb-4">Dla: —</p>
+    <div class="flex items-center gap-3 mb-2">
+      <input type="number" id="thresholdInput" min="0" max="1440" step="15"
+        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-2xl font-black text-slate-100 text-center focus:outline-none focus:border-cyan-500"
+        placeholder="120">
+      <span class="text-slate-400 font-mono text-sm">min</span>
+    </div>
+    <p class="text-[10px] text-slate-500 font-mono mb-4">np. 120 = 2h | 180 = 3h | 0 = wyłącz limit</p>
+    <p id="thresholdError" class="text-xs text-red-400 font-mono mb-3 hidden"></p>
+    <button onclick="submitThreshold()" id="thresholdSaveBtn"
+      class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg transition-colors">
+      Zapisz limit
+    </button>
+  </div>
+</div>
+<!-- UPLOAD CHILD SELECTION MODAL -->
+<div id="uploadModal" class="fixed inset-0 bg-slate-950/80 z-50 hidden flex-col items-center justify-center p-4 backdrop-blur-sm">
+  <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl relative">
+    <button onclick="closeUploadModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+    </button>
+    <h2 class="text-lg font-bold text-slate-100 mb-1" data-i18n="uploadModalTitle">Czyje dane wgrywasz?</h2>
+    <p class="text-xs font-mono text-slate-400 mb-4" id="uploadFilenameLabel">—</p>
+
+    <!-- Dropdown istniejących dzieci -->
+    <div id="uploadChildSelect" class="space-y-2 mb-3">
+      <!-- Dynamicznie renderowane przyciski dzieci -->
+    </div>
+
+    <!-- Opcja: nowe dziecko -->
+    <button onclick="toggleNewChildInput()" id="newChildToggle" class="w-full text-left text-xs font-mono text-cyan-400 hover:text-cyan-300 border border-slate-700 border-dashed rounded-lg p-2.5 transition-colors">
+      + <span data-i18n="newChild">Nowe dziecko</span>
+    </button>
+
+    <div id="newChildInputWrap" class="hidden mt-3">
+      <input type="text" id="newChildName"
+        class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 font-mono mb-2"
+        placeholder="np. Ciastek">
+      <button onclick="confirmNewChild()"
+        class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-2.5 rounded-lg text-sm transition-colors" data-i18n="confirmNewChild">
+        Potwierdź
+      </button>
+    </div>
+
+    <p id="uploadModalError" class="text-xs text-red-400 font-mono mt-3 hidden"></p>
+  </div>
+</div>
 </body>
 </html>
