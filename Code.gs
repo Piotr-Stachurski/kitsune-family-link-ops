@@ -4,6 +4,12 @@
 // ==========================================
 
 const scriptProps = PropertiesService.getScriptProperties();
+function forceAuthorize() {
+  ScriptApp.getProjectTriggers();
+  DriveApp.getRootFolder();
+  SpreadsheetApp.getActiveSpreadsheet();
+  return "OK";
+}
 
 function doGet(e) {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -273,5 +279,64 @@ function uploadFileFromFrontend(dataURI, filename) {
     };
   } catch (e) {
     return { success: false, message: e.message };
+  }
+}
+
+// ==========================================
+// W1 — THRESHOLD MANAGEMENT
+// ==========================================
+
+function getThresholds() {
+  const keys = scriptProps.getProperties();
+  const thresholds = {};
+  for (const key in keys) {
+    if (key.startsWith('threshold_')) {
+      const userName = key.replace('threshold_', '');
+      thresholds[userName] = parseInt(keys[key]) || 0;
+    }
+  }
+  return JSON.stringify(thresholds);
+}
+
+function saveThreshold(userName, minutes) {
+  try {
+    const mins = parseInt(minutes);
+    if (!userName || isNaN(mins) || mins < 0 || mins > 1440) {
+      return { success: false, message: "Nieprawidłowa wartość. Podaj liczbę minut od 0 do 1440." };
+    }
+    scriptProps.setProperty('threshold_' + userName, mins.toString());
+    return { success: true };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// ==========================================
+// AUTO-REFRESH POLLING
+// ==========================================
+
+function getLastUpdateTime() {
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return 0;
+    // Zwracamy liczbę wierszy + timestamp ostatniej modyfikacji arkusza
+    // Frontend porównuje tę wartość — jeśli się zmieni, pobiera świeże dane
+    const modTime = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getLastUpdated().getTime();
+    return modTime + '_' + lastRow;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// ==========================================
+// LINK DO SHEETS SSoT
+// ==========================================
+
+function getSheetsUrl() {
+  try {
+    return SpreadsheetApp.getActiveSpreadsheet().getUrl();
+  } catch (e) {
+    return null;
   }
 }
