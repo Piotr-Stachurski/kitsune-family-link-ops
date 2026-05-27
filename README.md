@@ -16,8 +16,10 @@ Built on zero-cost, zero-infrastructure Google Workspace stack: **Apps Script + 
 
 ### Mobile
 
-![Kitsune Dashboard Mobile](screenshots/mobile-kpi.png)
-![Kitsune Dashboard Mobile — Tooltip & Behavioral Analysis](screenshots/mobile-behavioral.png)
+<p align="center">
+  <img src="screenshots/mobile-kpi.png" alt="Kitsune Dashboard Mobile" width="300" />
+  <img src="screenshots/mobile-behavioral.png" alt="Kitsune Dashboard Mobile — Tooltip & Behavioral Analysis" width="300" />
+</p>
 
 ---
 
