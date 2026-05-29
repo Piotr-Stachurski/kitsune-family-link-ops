@@ -1,13 +1,15 @@
 // ==========================================
 // KITSUNE LINK OPS - BACKEND & DATA PIPELINE
-// v2.1 — refactored
+// v2.1 — refactored | W6 — Upload Reminder
 // ==========================================
 
 const scriptProps = PropertiesService.getScriptProperties();
+
 function forceAuthorize() {
   ScriptApp.getProjectTriggers();
   DriveApp.getRootFolder();
   SpreadsheetApp.getActiveSpreadsheet();
+  MailApp.getRemainingDailyQuota(); // W6 — wymusza scope gmail.send przy autoryzacji
   return "OK";
 }
 
@@ -29,7 +31,6 @@ function checkSetup() {
 
 function initializeSystem(apiKey) {
   try {
-    // [FIX] Walidacja formatu API key — musi zaczynać się od "AIza" i mieć min. 35 znaków
     if (!apiKey || !apiKey.startsWith('AIza') || apiKey.length < 35) {
       return { success: false, message: "Nieprawidłowy klucz API. Klucz Gemini zaczyna się od 'AIza' i ma co najmniej 35 znaków. Pobierz go na: https://aistudio.google.com/apikey" };
     }
@@ -44,10 +45,13 @@ function initializeSystem(apiKey) {
 
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
     if (sheet.getLastRow() === 0) {
-      // [FIX] Dodana kolumna Category — Gemini teraz kategoryzuje przy ekstrakcji
       sheet.appendRow(["Dziecko", "Data", "Total_Min", "Apps_Payload"]);
       sheet.getRange("A1:D1").setFontWeight("bold");
     }
+
+    // W6 — rejestruj daily trigger dla checkUploadReminder() przy nowym setupie
+    _registerReminderTriggerIfMissing();
+
     return { success: true, message: "Ekosystem pomyślnie postawiony." };
   } catch (e) {
     return { success: false, message: e.message };
@@ -85,13 +89,6 @@ function getTelemetryData() {
   return JSON.stringify(result);
 }
 
-// [FIX] processDropzone() — ASYNC pattern.
-// Ta funkcja NIE jest już wywoływana synchronicznie z uploadFileFromFrontend().
-// Zamiast tego: upload zapisuje plik do Dropzone i kończy request.
-// processDropzone() jest wywoływane przez osobny time-based trigger (co 5 minut)
-// LUB ręcznie przez użytkownika z poziomu GAS editor.
-// Instrukcja setup triggera: GAS Editor → Triggers → Add Trigger →
-//   Function: processDropzone | Event: Time-driven | Every 5 minutes
 function processDropzone() {
   const API_KEY = scriptProps.getProperty('GEMINI_API_KEY');
   const DROPZONE_ID = scriptProps.getProperty('DROPZONE_FOLDER_ID');
@@ -119,13 +116,8 @@ function processDropzone() {
 
 function extractDataWithGemini(file, apiKey) {
   const base64Pdf = Utilities.base64Encode(file.getBlob().getBytes());
-
-  // [FIX] Rozszerzony fallback chain — 4 modele
   const fallbackChain = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
-  // [FIX] Prompt rozszerzony o kategoryzację — Gemini teraz sam kategoryzuje każdą aplikację.
-  // Usunięta hardcoded CATEGORY_MAP z frontendu — dane kategorii płyną z Sheets przez payload.
-  // Dostępne kategorie: entertainment, social, education, other
   const prompt = `Jesteś analitycznym systemem ekstrakcji danych. Analizujesz wielostronicowy raport PDF z czasem ekranowym w formie screenshotów.
 Plik to: ${file.getName()}.
 Wyciągnij z nazwy pliku imię dziecka (pierwsze słowo przed znakiem _ lub spacją).
@@ -189,14 +181,10 @@ Zwróć wynik WYŁĄCZNIE jako surowy JSON (bez markdown, bez backticks, bez kom
   throw new Error(`Wszystkie modele Gemini zawiodły. Ostatni błąd: ${lastError}`);
 }
 
-// [FIX] upsertToSheet() — batch write zamiast N×2 individual calls.
-// Logika: wczytaj cały arkusz → oblicz zmiany w pamięci → jeden zapis setValues().
-// Eliminuje ryzyko GAS timeout przy dużych batchach (np. rok danych wstecz).
 function upsertToSheet(dataArray) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
   const allValues = sheet.getDataRange().getValues();
 
-  // Buduj index: compositeKey → row index (0-based w tablicy)
   const indexMap = {};
   for (let i = 1; i < allValues.length; i++) {
     let dateStr = allValues[i][1];
@@ -213,35 +201,26 @@ function upsertToSheet(dataArray) {
     const appsJson = JSON.stringify(day.apps);
 
     if (indexMap[compositeKey] !== undefined) {
-      // UPDATE w pamięci — zmodyfikuj tablicę lokalnie
       const rowIdx = indexMap[compositeKey];
       allValues[rowIdx][2] = day.total_min;
       allValues[rowIdx][3] = appsJson;
     } else {
-      // INSERT — dodaj do kolejki
       rowsToAppend.push([day.user, day.date, day.total_min, appsJson]);
     }
   });
 
-  // Jeden batch write dla updates
   if (allValues.length > 1) {
     sheet.getRange(1, 1, allValues.length, 4).setValues(allValues);
   }
-
-  // Batch append dla nowych wierszy
   if (rowsToAppend.length > 0) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rowsToAppend.length, 4).setValues(rowsToAppend);
   }
 }
 
 // [FIX v2.2] uploadFileFromFrontend() — async pattern z auto-triggerem.
-// Plik trafia do Dropzone i automatycznie tworzy jednorazowy trigger
-// który odpala processDropzone() za 10 sekund.
-// Trigger sam się usuwa po wykonaniu (cleanup w processDropzone()).
-// Zero ręcznej konfiguracji triggerów w GAS Editor — wgrywasz kod, działa.
+// W6 — dodaje zapis LAST_UPLOAD_TIMESTAMP po pomyślnym zapisie pliku.
 function uploadFileFromFrontend(dataURI, filename) {
   try {
-    // [FIX] Walidacja nazwy pliku — regex zamiast includes('_')
     const validName = /^[A-Za-zÀ-žĄąĆćĘęŁłŃńÓóŚśŹźŻż]+[_ ].+\.pdf$/i.test(filename);
     if (!validName) {
       return { success: false, message: "Nieprawidłowa nazwa pliku. Wymagany format: Imię_Data.pdf (np. Zuzia_2024-03.pdf)" };
@@ -257,8 +236,10 @@ function uploadFileFromFrontend(dataURI, filename) {
     const blob = Utilities.newBlob(Utilities.base64Decode(base64Data), mimeType, filename);
     DriveApp.getFolderById(dropzoneId).createFile(blob);
 
-    // [FIX v2.2] Cleanup starych triggerów processDropzone (limit GAS: 20 per user)
-    // Usuwamy WSZYSTKIE pending triggery — i tak jeden nowy ogarnie cały Dropzone
+    // W6 — zapisz timestamp pomyślnego uploadu (epoch ms)
+    scriptProps.setProperty('LAST_UPLOAD_TIMESTAMP', Date.now().toString());
+
+    // Cleanup starych triggerów processDropzone (limit GAS: 20 per user)
     const existingTriggers = ScriptApp.getProjectTriggers();
     existingTriggers.forEach(trigger => {
       if (trigger.getHandlerFunction() === 'processDropzone') {
@@ -266,8 +247,7 @@ function uploadFileFromFrontend(dataURI, filename) {
       }
     });
 
-    // [FIX v2.2] Jednorazowy trigger odpalający processDropzone za 10 sekund
-    // .after() w milisekundach. Trigger wykonuje się raz i znika automatycznie po execution.
+    // Jednorazowy trigger odpalający processDropzone za 10 sekund
     ScriptApp.newTrigger('processDropzone')
       .timeBased()
       .after(10 * 1000)
@@ -320,8 +300,6 @@ function getLastUpdateTime() {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return 0;
-    // Zwracamy liczbę wierszy + timestamp ostatniej modyfikacji arkusza
-    // Frontend porównuje tę wartość — jeśli się zmieni, pobiera świeże dane
     const modTime = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getLastUpdated().getTime();
     return modTime + '_' + lastRow;
   } catch (e) {
@@ -338,5 +316,121 @@ function getSheetsUrl() {
     return SpreadsheetApp.getActiveSpreadsheet().getUrl();
   } catch (e) {
     return null;
+  }
+}
+
+// ==========================================
+// W6.1 — UPLOAD REMINDER (email-based)
+// ==========================================
+// Odbiorca remindera jest konfigurowalny przez frontend (REMINDER_EMAIL).
+// Świadoma decyzja architektoniczna: odbiorca ≠ owner skryptu.
+// Osoba przypominająca o uploadzie to często nie ta sama co właściciel infrastruktury.
+// Zero zależności od Session.getEffectiveUser() → zero scope userinfo.email.
+ 
+// getReminderSettings() — zwraca aktualny stan konfiguracji przypomnienia.
+// Frontend wywołuje przy otwarciu ReminderModal ORAZ przy bootstrapie (stan ramki przycisku).
+function getReminderSettings() {
+  try {
+    const days = parseInt(scriptProps.getProperty('REMINDER_DAYS')) || 3;
+    const email = scriptProps.getProperty('REMINDER_EMAIL') || '';
+    const lastUploadRaw = scriptProps.getProperty('LAST_UPLOAD_TIMESTAMP');
+    const lastUpload = lastUploadRaw ? parseInt(lastUploadRaw) : null;
+    return JSON.stringify({ days: days, email: email, lastUpload: lastUpload });
+  } catch (e) {
+    return JSON.stringify({ days: 3, email: '', lastUpload: null });
+  }
+}
+ 
+// saveReminderSettings(days, email) — waliduje i zapisuje oba pola atomowo.
+// days: 1-30 | email: prosty regex guard (frontend waliduje twardziej).
+// Pusty email jest DOZWOLONY (user może chcieć tylko zmienić dni) — wtedy reminder pozostaje martwy.
+function saveReminderSettings(days, email) {
+  try {
+    const d = parseInt(days);
+    if (isNaN(d) || d < 1 || d > 30) {
+      return { success: false, message: "Podaj liczbę dni od 1 do 30." };
+    }
+ 
+    // Email opcjonalny, ale jeśli podany — musi przejść podstawowy guard
+    const mail = (email || '').trim();
+    if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
+      return { success: false, message: "Nieprawidłowy format adresu email." };
+    }
+ 
+    scriptProps.setProperty('REMINDER_DAYS', d.toString());
+    scriptProps.setProperty('REMINDER_EMAIL', mail);
+    return { success: true, hasEmail: mail.length > 0 };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+ 
+// checkUploadReminder() — wywoływany przez daily time-based trigger.
+// Sprawdza czy minęło więcej niż REMINDER_DAYS dni od ostatniego uploadu.
+// Jeśli tak ORAZ jest skonfigurowany REMINDER_EMAIL — wysyła email.
+// Edge cases:
+//   - LAST_UPLOAD_TIMESTAMP nie ustawiony (brak uploadów) → skip silently
+//   - REMINDER_EMAIL pusty (nigdy nie ustawiony) → skip silently (frontend sygnalizuje ramką)
+//   - REMINDER_DAYS nie ustawiony → default 3
+//   - MailApp error → log, nie crashuj triggera
+function checkUploadReminder() {
+  try {
+    const recipient = scriptProps.getProperty('REMINDER_EMAIL');
+    if (!recipient) {
+      Logger.log('W6.1 checkUploadReminder: brak REMINDER_EMAIL, skip.');
+      return;
+    }
+ 
+    const lastUploadRaw = scriptProps.getProperty('LAST_UPLOAD_TIMESTAMP');
+    if (!lastUploadRaw) {
+      Logger.log('W6.1 checkUploadReminder: brak LAST_UPLOAD_TIMESTAMP, skip.');
+      return;
+    }
+ 
+    const lastUpload = parseInt(lastUploadRaw);
+    const days = parseInt(scriptProps.getProperty('REMINDER_DAYS')) || 3;
+    const thresholdMs = days * 24 * 60 * 60 * 1000;
+    const elapsed = Date.now() - lastUpload;
+ 
+    if (elapsed <= thresholdMs) {
+      Logger.log(`W6.1 checkUploadReminder: ${Math.floor(elapsed/86400000)}d od ostatniego uploadu — próg ${days}d nie przekroczony.`);
+      return;
+    }
+ 
+    const elapsedDays = Math.floor(elapsed / 86400000);
+    const lastUploadDate = new Date(lastUpload).toLocaleDateString('pl-PL');
+ 
+    const subject = `Kitsune FL — Brak nowych danych od ${elapsedDays} dni`;
+    const body = `Cześć,\n\nOd ${elapsedDays} dni (ostatni upload: ${lastUploadDate}) nie dodano nowych danych ekranowych do Kitsune Family Link Ops.\n\nCzas wgrać świeży raport z Family Link.\n\nJeśli chcesz wyłączyć to powiadomienie lub zmienić częstotliwość, otwórz dashboard → przycisk Remind.\n\n— Kitsune FL System`;
+ 
+    MailApp.sendEmail(recipient, subject, body);
+    Logger.log(`W6.1 checkUploadReminder: email wysłany do ${recipient} (${elapsedDays}d od ostatniego uploadu).`);
+ 
+  } catch (e) {
+    Logger.log('W6.1 checkUploadReminder ERROR: ' + e.message);
+    // Celowo nie rzucamy — nie crashujemy triggera przy błędzie maila
+  }
+}
+ 
+// registerReminderTrigger() — jednorazowa funkcja do uruchomienia RĘCZNIE z GAS Editor
+// dla istniejących instalacji. Idempotentna — bezpieczne wielokrotne uruchomienie.
+function registerReminderTrigger() {
+  _registerReminderTriggerIfMissing();
+  Logger.log('W6.1 registerReminderTrigger: zakończone.');
+}
+ 
+// _registerReminderTriggerIfMissing() — helper prywatny. Tworzy daily trigger jeśli brak.
+function _registerReminderTriggerIfMissing() {
+  const existing = ScriptApp.getProjectTriggers();
+  const alreadyExists = existing.some(t => t.getHandlerFunction() === 'checkUploadReminder');
+  if (!alreadyExists) {
+    ScriptApp.newTrigger('checkUploadReminder')
+      .timeBased()
+      .everyDays(1)
+      .atHour(9)
+      .create();
+    Logger.log('W6.1 _registerReminderTriggerIfMissing: trigger checkUploadReminder zarejestrowany.');
+  } else {
+    Logger.log('W6.1 _registerReminderTriggerIfMissing: trigger już istnieje, skip.');
   }
 }
