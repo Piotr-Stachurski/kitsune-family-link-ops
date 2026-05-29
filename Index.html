@@ -26,6 +26,16 @@
         .neon-pulse-purple { box-shadow: 0 0 8px rgba(168, 85, 247, 0.7); animation: p-purp 2s infinite alternate; }
         @keyframes p-purp { 0% { box-shadow: 0 0 4px rgba(168, 85, 247, 0.4); } 100% { box-shadow: 0 0 14px rgba(168, 85, 247, 0.9); } }
 
+         /* W6.1 — reminder unset: brak skonfigurowanego emaila */
+        .reminder-unset {
+            border-color: rgba(245, 158, 11, 0.6) !important;
+            animation: p-amber 3.5s infinite alternate;
+        }
+        @keyframes p-amber {
+            0%   { box-shadow: 0 0 3px rgba(245, 158, 11, 0.3); }
+            100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.65); }
+        }
+
         .loader { border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid #0ea5e9; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -176,6 +186,12 @@
                     class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors flex items-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     Limit
+                </button>
+
+                <button id="reminderBtn" onclick="openReminderModal()"
+                    class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                    <span data-i18n="reminderBtnLabel">Remind</span>
                 </button>
 
                 <button onclick="toggleLang()" id="langBtn" class="text-xs font-mono bg-slate-900 border border-slate-700 text-slate-300 px-3 py-1.5 rounded hover:bg-slate-800 transition-colors">
@@ -336,11 +352,13 @@
                 const fab = document.getElementById('uploadFab');
                 const shareBtn = document.getElementById('openShareBtn');
                 const sheetsBtn = document.querySelector('[onclick="openSheetsSSoT()"]');
+                const reminderBtn = document.getElementById('reminderBtn');
                 const thresholdBtn = document.getElementById('thresholdBtn');
                 if (fab) fab.remove();
                 if (shareBtn) shareBtn.remove();
                 if (sheetsBtn) sheetsBtn.remove();
                 if (thresholdBtn) thresholdBtn.remove();
+                if (reminderBtn) reminderBtn.remove();
             }
         });
 
@@ -420,7 +438,15 @@
                 'heatmapLow': 'Mało', 'heatmapHigh': 'Dużo / Limit', 'heatmapNoData': 'Brak danych',
                 'trendOverview': '📈 Przegląd Trendów', 'trendOverviewHint': 'Pełny zakres wybranego okresu. Najedź na punkt po detale.',
                 'lineRaw': 'Dzienne', 'lineAvg': 'Śr. 7-dniowa',
-                'monthPrefix': ''
+                'monthPrefix': '',
+                'reminderTitle': 'Przypomnienie o uploadzie',
+                'reminderEmailLabel': 'Adres odbiorcy przypomnień',
+                'reminderEmailHint': 'Tu trafi mail, gdy zabraknie świeżych danych. Może być dowolny adres.',
+                'reminderDaysLabel': 'Przypomnij po ilu dniach bez danych',
+                'reminderDaysHint': 'Zakres 1–30 dni',
+                'reminderDaysUnit': 'dni',
+                'reminderBtnLabel': 'Remind',
+                'reminderSave': 'Zapisz'
             },
             'en': {
                 'globalVol': 'Global Volume', 'days': 'days', 'screenRatio': 'Screen vs Awake',
@@ -444,7 +470,15 @@
                 'heatmapLow': 'Low', 'heatmapHigh': 'High / Limit', 'heatmapNoData': 'No data',
                 'trendOverview': '📈 Trend Overview', 'trendOverviewHint': 'Full selected range. Hover a point for details.',
                 'lineRaw': 'Daily', 'lineAvg': '7-day avg',
-                'monthPrefix': ''
+                'monthPrefix': '',
+                'reminderTitle': 'Upload Reminder',
+                'reminderEmailLabel': 'Reminder recipient address',
+                'reminderEmailHint': 'Where the alert goes when data is missing. Any address works.',
+                'reminderDaysLabel': 'Remind after how many days without data',
+                'reminderDaysHint': 'Range 1–30 days',
+                'reminderDaysUnit': 'days',
+                'reminderBtnLabel': 'Remind',
+                'reminderSave': 'Save'
             }
         };
 
@@ -673,9 +707,11 @@
                 .withSuccessHandler(function(json) {
                     thresholds = JSON.parse(json || '{}');
                     renderDashboardForUser(uniqueUsers[0]);
+                    initReminderButtonState(); // W6.1 — ustaw ramkę przycisku Remind
                 })
                 .withFailureHandler(function() {
                     renderDashboardForUser(uniqueUsers[0]);
+                    initReminderButtonState(); // W6.1 — ustaw ramkę przycisku Remind
                 })
                 .getThresholds();
         }
@@ -1584,9 +1620,11 @@
                 const uploadModal = document.getElementById('uploadModal');
                 const thresholdModal = document.getElementById('thresholdModal');
                 const shareModal = document.getElementById('shareModal');
+                const reminderModal = document.getElementById('reminderModal');
                 if (uploadModal && !uploadModal.classList.contains('hidden')) closeUploadModal();
                 if (thresholdModal && !thresholdModal.classList.contains('hidden')) closeThresholdModal();
                 if (shareModal && !shareModal.classList.contains('hidden')) closeShareModal();
+                if (reminderModal && !reminderModal.classList.contains('hidden')) closeReminderModal();
             }
         });
 
@@ -1598,6 +1636,115 @@
                 })
                 .withFailureHandler(function() { showToast('Błąd połączenia z GAS.', 'error'); })
                 .getSheetsUrl();
+        }
+
+        // W6.1 — REMINDER MODAL (email-based)
+        // ========================================================
+        function openReminderModal() {
+            document.getElementById('reminderError').classList.add('hidden');
+            const modal = document.getElementById('reminderModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+ 
+            google.script.run
+                .withSuccessHandler(function(jsonStr) {
+                    try {
+                        const s = JSON.parse(jsonStr);
+                        document.getElementById('reminderDaysInput').value = s.days || 3;
+                        document.getElementById('reminderEmailInput').value = s.email || '';
+                        const lastUploadEl = document.getElementById('reminderLastUploadLabel');
+                        const label = currentLang === 'pl' ? 'Ostatni upload:' : 'Last upload:';
+                        if (s.lastUpload) {
+                            const d = new Date(s.lastUpload);
+                            lastUploadEl.innerText = `${label} ${d.toLocaleDateString(currentLang === 'pl' ? 'pl-PL' : 'en-GB')}`;
+                        } else {
+                            lastUploadEl.innerText = currentLang === 'pl' ? 'Ostatni upload: brak danych' : 'Last upload: no uploads yet';
+                        }
+                    } catch(e) {
+                        document.getElementById('reminderDaysInput').value = 3;
+                    }
+                })
+                .withFailureHandler(function() {
+                    document.getElementById('reminderDaysInput').value = 3;
+                })
+                .getReminderSettings();
+        }
+ 
+        function closeReminderModal() {
+            const modal = document.getElementById('reminderModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+ 
+        function submitReminderSettings() {
+            const days = parseInt(document.getElementById('reminderDaysInput').value);
+            const email = document.getElementById('reminderEmailInput').value.trim();
+            const errorEl = document.getElementById('reminderError');
+ 
+            if (isNaN(days) || days < 1 || days > 30) {
+                errorEl.innerText = currentLang === 'pl' ? 'Podaj liczbę dni od 1 do 30.' : 'Enter a number of days from 1 to 30.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+            // Email opcjonalny, ale jeśli wpisany — waliduj format
+            if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                errorEl.innerText = currentLang === 'pl' ? 'Nieprawidłowy format adresu email.' : 'Invalid email format.';
+                errorEl.classList.remove('hidden');
+                return;
+            }
+ 
+            const btn = document.getElementById('reminderSaveBtn');
+            btn.disabled = true;
+            btn.innerText = currentLang === 'pl' ? 'Zapisywanie...' : 'Saving...';
+ 
+            google.script.run
+                .withSuccessHandler(function(res) {
+                    btn.disabled = false;
+                    btn.innerText = currentLang === 'pl' ? 'Zapisz' : 'Save';
+                    if (res.success) {
+                        // W6.1 — zaktualizuj stan ramki przycisku natychmiast
+                        applyReminderButtonState(res.hasEmail);
+                        closeReminderModal();
+                        const msg = res.hasEmail
+                            ? (currentLang === 'pl' ? `Przypomnienie ustawione: co ${days} dni → ${email}` : `Reminder set: every ${days} days → ${email}`)
+                            : (currentLang === 'pl' ? `Zapisano ${days} dni. Dodaj email, aby aktywować przypomnienia.` : `Saved ${days} days. Add an email to activate reminders.`);
+                        showToast(msg, res.hasEmail ? 'success' : 'error');
+                    } else {
+                        errorEl.innerText = res.message;
+                        errorEl.classList.remove('hidden');
+                    }
+                })
+                .withFailureHandler(function() {
+                    btn.disabled = false;
+                    btn.innerText = currentLang === 'pl' ? 'Zapisz' : 'Save';
+                    errorEl.innerText = 'Błąd połączenia z GAS.';
+                    errorEl.classList.remove('hidden');
+                })
+                .saveReminderSettings(days, email);
+        }
+ 
+        // W6.1 — steruje amber ramką przycisku Remind.
+        // hasEmail=false → ramka aktywna (reminder remindera). true → ramka zdjęta.
+        function applyReminderButtonState(hasEmail) {
+            const btn = document.getElementById('reminderBtn');
+            if (!btn) return; // viewer mode — przycisk usunięty
+            if (hasEmail) btn.classList.remove('reminder-unset');
+            else btn.classList.add('reminder-unset');
+        }
+ 
+        // W6.1 — bootstrap check: pobierz stan emaila raz przy starcie, ustaw ramkę.
+        function initReminderButtonState() {
+            const btn = document.getElementById('reminderBtn');
+            if (!btn) return; // viewer mode
+            google.script.run
+                .withSuccessHandler(function(jsonStr) {
+                    try {
+                        const s = JSON.parse(jsonStr);
+                        applyReminderButtonState(!!(s.email && s.email.length > 0));
+                    } catch(e) { /* w razie błędu zostaw bez ramki */ }
+                })
+                .withFailureHandler(function() {})
+                .getReminderSettings();
         }
 
         window.addEventListener('DOMContentLoaded', bootstrapApp);
@@ -1648,6 +1795,41 @@
                 </button>
             </div>
             <p id="uploadModalError" class="text-xs text-red-400 font-mono mt-3 hidden"></p>
+        </div>
+    </div>
+
+        <!-- W6.1 — REMINDER MODAL -->
+    <div id="reminderModal" class="fixed inset-0 bg-slate-950/80 z-50 hidden flex-col items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl relative">
+            <button onclick="closeReminderModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <h2 class="text-lg font-bold text-slate-100 mb-1" data-i18n="reminderTitle">Przypomnienie o uploadzie</h2>
+            <p id="reminderLastUploadLabel" class="text-xs font-mono text-cyan-400 mb-4">Ostatni upload: —</p>
+ 
+            <!-- Email odbiorcy -->
+            <label class="block text-xs font-mono text-slate-400 mb-1" data-i18n="reminderEmailLabel">Adres odbiorcy przypomnień</label>
+            <input type="email" id="reminderEmailInput"
+                class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 font-mono mb-1 focus:outline-none focus:border-cyan-500"
+                placeholder="np. ktos@gmail.com">
+            <p class="text-[10px] text-slate-500 font-mono mb-4" data-i18n="reminderEmailHint">Tu trafi mail, gdy zabraknie świeżych danych. Może być dowolny adres.</p>
+ 
+            <!-- Liczba dni -->
+            <label class="block text-xs font-mono text-slate-400 mb-1" data-i18n="reminderDaysLabel">Przypomnij po ilu dniach bez danych</label>
+            <div class="flex items-center gap-3 mb-1">
+                <input type="number" id="reminderDaysInput" min="1" max="30" step="1"
+                    class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-2xl font-black text-slate-100 text-center focus:outline-none focus:border-cyan-500"
+                    placeholder="3">
+                <span class="text-slate-400 font-mono text-sm" data-i18n="reminderDaysUnit">dni</span>
+            </div>
+            <p class="text-[10px] text-slate-500 font-mono mb-4" data-i18n="reminderDaysHint">Zakres 1–30 dni</p>
+ 
+            <p id="reminderError" class="text-xs text-red-400 font-mono mb-3 hidden"></p>
+            <button onclick="submitReminderSettings()" id="reminderSaveBtn"
+                class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg transition-colors"
+                data-i18n="reminderSave">
+                Zapisz
+            </button>
         </div>
     </div>
 
