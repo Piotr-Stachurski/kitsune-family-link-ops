@@ -145,7 +145,7 @@
             </p>
             <input type="password" id="apiKeyInput" placeholder="AIzaSy..." class="w-full bg-slate-950 border border-slate-700 rounded-lg p-3 text-sm text-slate-200 mb-2 font-mono">
             <p id="apiKeyError" class="text-xs text-red-400 font-mono mb-3 hidden"></p>
-            <button onclick="submitSetup()" id="setupBtn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-500 transition-colors">Wdróż Ekosystem</button>
+            <button onclick="submitSetup()" id="setupBtn" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-500 transition-colors" data-i18n="setupBtn">Wdróż Ekosystem</button>
         </div>
     </div>
 
@@ -376,7 +376,7 @@
                 document.getElementById('shareModal').classList.add('flex');
             }).withFailureHandler(function(err) {
                 btn.style.opacity = '1';
-                alert("Błąd: Upewnij się, że autoryzowałeś skrypt w edytorze GAS.");
+                alert(trans('errorAuth'));
             }).getAppUrl();
         }
 
@@ -446,7 +446,29 @@
                 'reminderDaysHint': 'Zakres 1–30 dni',
                 'reminderDaysUnit': 'dni',
                 'reminderBtnLabel': 'Remind',
-                'reminderSave': 'Zapisz'
+                'reminderSave': 'Zapisz',
+                'setupBtn': 'Wdróż Ekosystem',
+                'errorAuth': 'Błąd: Upewnij się, że autoryzowałeś skrypt w edytorze GAS.',
+                'errorPrefix': 'Błąd: ',
+                'errorGasConn': 'Błąd połączenia z GAS: ',
+                'errorGas': 'Błąd połączenia z GAS.',
+                'errorDataLoad': 'Błąd ładowania danych. Sprawdź arkusz Sheets i odśwież stronę.',
+                'errorDataLoad2': 'Błąd ładowania danych.',
+                'thresholdTitle': 'Limit ekranu',
+                'thresholdFor': 'Dla: ',
+                'thresholdHint': 'np. 120 = 2h | 180 = 3h | 0 = wyłącz limit',
+                'thresholdValidation': 'Podaj liczbę minut od 0 do 1440.',
+                'thresholdSave': 'Zapisz limit',
+                'thresholdSaved': 'Limit zapisany: ',
+                'saving': 'Zapisywanie...',
+                'pctOfLimit': '% limitu',
+                'err_INVALID_API_KEY': "Nieprawidłowy klucz API. Klucz Gemini zaczyna się od 'AIza' i ma co najmniej 35 znaków.",
+                'err_INVALID_FILENAME': 'Nieprawidłowa nazwa pliku. Wymagany format: Imię_Data.pdf (np. Zuzia_2024-03.pdf)',
+                'err_NOT_CONFIGURED': 'System nie jest skonfigurowany. Odśwież stronę i przejdź przez Setup.',
+                'err_INVALID_MINUTES': 'Nieprawidłowa wartość. Podaj liczbę minut od 0 do 1440.',
+                'err_INVALID_DAYS': 'Podaj liczbę dni od 1 do 30.',
+                'err_INVALID_EMAIL': 'Nieprawidłowy format adresu email.',
+                'err_GENERIC': 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.'
             },
             'en': {
                 'globalVol': 'Global Volume', 'days': 'days', 'screenRatio': 'Screen vs Awake',
@@ -478,7 +500,29 @@
                 'reminderDaysHint': 'Range 1–30 days',
                 'reminderDaysUnit': 'days',
                 'reminderBtnLabel': 'Remind',
-                'reminderSave': 'Save'
+                'reminderSave': 'Save',
+                'setupBtn': 'Deploy Ecosystem',
+                'errorAuth': 'Error: Make sure you have authorized the script in the GAS editor.',
+                'errorPrefix': 'Error: ',
+                'errorGasConn': 'GAS connection error: ',
+                'errorGas': 'GAS connection error.',
+                'errorDataLoad': 'Failed to load data. Check your Sheets and refresh the page.',
+                'errorDataLoad2': 'Failed to load data.',
+                'thresholdTitle': 'Screen Time Limit',
+                'thresholdFor': 'For: ',
+                'thresholdHint': 'e.g. 120 = 2h | 180 = 3h | 0 = disable limit',
+                'thresholdValidation': 'Enter a number of minutes from 0 to 1440.',
+                'thresholdSave': 'Save limit',
+                'thresholdSaved': 'Limit saved: ',
+                'saving': 'Saving...',
+                'pctOfLimit': '% of limit',
+                'err_INVALID_API_KEY': "Invalid API key. Gemini key starts with 'AIza' and is at least 35 characters long.",
+                'err_INVALID_FILENAME': 'Invalid filename. Required format: Name_Date.pdf (e.g. Zuzia_2024-03.pdf)',
+                'err_NOT_CONFIGURED': 'System not configured. Refresh the page and go through Setup.',
+                'err_INVALID_MINUTES': 'Invalid value. Enter a number of minutes from 0 to 1440.',
+                'err_INVALID_DAYS': 'Enter a number of days from 1 to 30.',
+                'err_INVALID_EMAIL': 'Invalid email address format.',
+                'err_GENERIC': 'An unexpected error occurred. Please try again.'
             }
         };
 
@@ -502,6 +546,15 @@
         const HEATMAP_ROW_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
         function trans(key) { return DICT[currentLang][key] || key; }
+
+        // transErr() — tłumaczy backend error code na lokalny string.
+        // Jeśli response zawiera { code }, używa DICT['err_CODE'].
+        // Jeśli brak code (legacy lub catch), fallback na res.message lub err_GENERIC.
+        function transErr(res) {
+            if (res && res.code) return trans('err_' + res.code) || trans('err_GENERIC');
+            if (res && res.message) return res.message;
+            return trans('err_GENERIC');
+        }
 
         function formatMinsToStr(totalMins) {
             const h = Math.floor(totalMins / 60); const m = Math.round(totalMins % 60);
@@ -610,11 +663,11 @@
                 google.script.run
                     .withSuccessHandler(function(response) {
                         if (response.success) { startPolling(); }
-                        else { hideUploadProgress(); showToast("Błąd: " + response.message, 'error'); }
+                        else { hideUploadProgress(); showToast(trans('errorPrefix') + transErr(response), 'error'); }
                     })
                     .withFailureHandler(function(err) {
                         hideUploadProgress();
-                        showToast("Błąd połączenia z GAS: " + err.message, 'error');
+                        showToast(trans('errorGasConn') + err.message, 'error');
                     })
                     .uploadFileFromFrontend(e.target.result, newFilename);
             };
@@ -652,23 +705,25 @@
             const key = document.getElementById('apiKeyInput').value.trim();
             const errorEl = document.getElementById('apiKeyError');
             if (!key.startsWith('AIza') || key.length < 35) {
-                errorEl.innerText = "Klucz musi zaczynać się od 'AIza' i mieć min. 35 znaków.";
+                errorEl.innerText = currentLang === 'pl'
+                    ? "Klucz musi zaczynać się od 'AIza' i mieć min. 35 znaków."
+                    : "Key must start with 'AIza' and be at least 35 characters long.";
                 errorEl.classList.remove('hidden');
                 return;
             }
             errorEl.classList.add('hidden');
             const btn = document.getElementById('setupBtn');
             btn.disabled = true;
-            btn.innerText = 'Weryfikacja...';
+            btn.innerText = currentLang === 'pl' ? 'Weryfikacja...' : 'Verifying...';
             google.script.run.withSuccessHandler(res => {
                 btn.disabled = false;
-                btn.innerText = 'Wdróż Ekosystem';
+                btn.innerText = trans('setupBtn');
                 if (res.success) {
                     document.getElementById('setupScreen').style.display = 'none';
                     document.getElementById('loadingScreen').style.display = 'flex';
                     google.script.run.withSuccessHandler(initSPA).getTelemetryData();
                 } else {
-                    errorEl.innerText = res.message;
+                    errorEl.innerText = transErr(res);
                     errorEl.classList.remove('hidden');
                 }
             }).initializeSystem(key);
@@ -679,7 +734,7 @@
             try {
                 globalData = JSON.parse(jsonString);
             } catch (e) {
-                showToast("Błąd ładowania danych. Sprawdź arkusz Sheets i odśwież stronę.", 'error');
+                showToast(trans('errorDataLoad'), 'error');
                 const appContent = document.getElementById('dashboardApp');
                 appContent.classList.remove('hidden');
                 setTimeout(() => appContent.classList.remove('opacity-0'), 50);
@@ -991,7 +1046,7 @@
                     ttHtml += `<div style="color:#e2e8f0;margin-bottom:4px;">Total: <strong>${formatMinsToStr(mins)}</strong>`;
                     if (threshold) {
                         const pct = Math.round(mins / threshold * 100);
-                        ttHtml += ` <span style="color:${mins >= threshold ? '#f87171' : '#86efac'}">(${pct}% limitu)</span>`;
+                        ttHtml += ` <span style="color:${mins >= threshold ? '#f87171' : '#86efac'}">(${pct}% ${trans('pctOfLimit')})</span>`;
                     }
                     ttHtml += '</div><div style="border-top:1px solid #334155;padding-top:4px;">';
                     // Show top 6 apps; remainder shown as "+N więcej" without exact count
@@ -1438,7 +1493,7 @@
         function openThresholdModal() {
             const activeTab = document.querySelector('.tab-active');
             const userName = activeTab ? activeTab.innerText : '';
-            document.getElementById('thresholdModalLabel').innerText = 'Dla: ' + userName;
+            document.getElementById('thresholdModalLabel').innerText = trans('thresholdFor') + userName;
             document.getElementById('thresholdInput').value = thresholds[userName] || '';
             document.getElementById('thresholdError').classList.add('hidden');
             const modal = document.getElementById('thresholdModal');
@@ -1458,28 +1513,28 @@
             const val = parseInt(document.getElementById('thresholdInput').value);
             const errorEl = document.getElementById('thresholdError');
             if (isNaN(val) || val < 0 || val > 1440) {
-                errorEl.innerText = 'Podaj liczbę minut od 0 do 1440.';
+                errorEl.innerText = trans('thresholdValidation');
                 errorEl.classList.remove('hidden');
                 return;
             }
             const btn = document.getElementById('thresholdSaveBtn');
-            btn.disabled = true; btn.innerText = 'Zapisywanie...';
+            btn.disabled = true; btn.innerText = trans('saving');
             google.script.run
                 .withSuccessHandler(function(res) {
-                    btn.disabled = false; btn.innerText = 'Zapisz limit';
+                    btn.disabled = false; btn.innerText = trans('thresholdSave');
                     if (res.success) {
                         thresholds[userName] = val;
                         closeThresholdModal();
                         renderDashboardForUser(userName);
-                        showToast('Limit zapisany: ' + val + ' min (' + (val/60).toFixed(1) + 'h)', 'success');
+                        showToast(trans('thresholdSaved') + val + ' min (' + (val/60).toFixed(1) + 'h)', 'success');
                     } else {
-                        errorEl.innerText = res.message;
+                        errorEl.innerText = transErr(res);
                         errorEl.classList.remove('hidden');
                     }
                 })
                 .withFailureHandler(function() {
-                    btn.disabled = false; btn.innerText = 'Zapisz limit';
-                    document.getElementById('thresholdError').innerText = 'Błąd połączenia z GAS.';
+                    btn.disabled = false; btn.innerText = trans('thresholdSave');
+                    document.getElementById('thresholdError').innerText = trans('errorGas');
                     document.getElementById('thresholdError').classList.remove('hidden');
                 })
                 .saveThreshold(userName, val);
@@ -1559,7 +1614,7 @@
                         }
                         showToast(currentLang === 'pl' ? '✓ Dane zaktualizowane!' : '✓ Data updated!', 'success');
                     } catch (e) {
-                        showToast('Błąd ładowania danych.', 'error');
+                        showToast(trans('errorDataLoad2'), 'error');
                     }
                 })
                 .getTelemetryData();
@@ -1634,11 +1689,9 @@
                     if (url) window.open(url, '_blank');
                     else showToast(currentLang === 'pl' ? 'Nie można otworzyć arkusza.' : 'Cannot open spreadsheet.', 'error');
                 })
-                .withFailureHandler(function() { showToast('Błąd połączenia z GAS.', 'error'); })
+                .withFailureHandler(function() { showToast(trans('errorGas'), 'error'); })
                 .getSheetsUrl();
         }
-
-        // W6.1 — REMINDER MODAL (email-based)
         // ========================================================
         function openReminderModal() {
             document.getElementById('reminderError').classList.add('hidden');
@@ -1682,25 +1735,25 @@
             const errorEl = document.getElementById('reminderError');
  
             if (isNaN(days) || days < 1 || days > 30) {
-                errorEl.innerText = currentLang === 'pl' ? 'Podaj liczbę dni od 1 do 30.' : 'Enter a number of days from 1 to 30.';
+                errorEl.innerText = trans('err_INVALID_DAYS');
                 errorEl.classList.remove('hidden');
                 return;
             }
             // Email opcjonalny, ale jeśli wpisany — waliduj format
             if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                errorEl.innerText = currentLang === 'pl' ? 'Nieprawidłowy format adresu email.' : 'Invalid email format.';
+                errorEl.innerText = trans('err_INVALID_EMAIL');
                 errorEl.classList.remove('hidden');
                 return;
             }
  
             const btn = document.getElementById('reminderSaveBtn');
             btn.disabled = true;
-            btn.innerText = currentLang === 'pl' ? 'Zapisywanie...' : 'Saving...';
+            btn.innerText = trans('saving');
  
             google.script.run
                 .withSuccessHandler(function(res) {
                     btn.disabled = false;
-                    btn.innerText = currentLang === 'pl' ? 'Zapisz' : 'Save';
+                    btn.innerText = trans('reminderSave');
                     if (res.success) {
                         // W6.1 — zaktualizuj stan ramki przycisku natychmiast
                         applyReminderButtonState(res.hasEmail);
@@ -1710,14 +1763,14 @@
                             : (currentLang === 'pl' ? `Zapisano ${days} dni. Dodaj email, aby aktywować przypomnienia.` : `Saved ${days} days. Add an email to activate reminders.`);
                         showToast(msg, res.hasEmail ? 'success' : 'error');
                     } else {
-                        errorEl.innerText = res.message;
+                        errorEl.innerText = transErr(res);
                         errorEl.classList.remove('hidden');
                     }
                 })
                 .withFailureHandler(function() {
                     btn.disabled = false;
-                    btn.innerText = currentLang === 'pl' ? 'Zapisz' : 'Save';
-                    errorEl.innerText = 'Błąd połączenia z GAS.';
+                    btn.innerText = trans('reminderSave');
+                    errorEl.innerText = trans('errorGas');
                     errorEl.classList.remove('hidden');
                 })
                 .saveReminderSettings(days, email);
@@ -1756,7 +1809,7 @@
             <button onclick="closeThresholdModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
-            <h2 class="text-lg font-bold text-slate-100 mb-1">Limit ekranu</h2>
+            <h2 class="text-lg font-bold text-slate-100 mb-1" data-i18n="thresholdTitle">Limit ekranu</h2>
             <p id="thresholdModalLabel" class="text-xs font-mono text-cyan-400 mb-4">Dla: —</p>
             <div class="flex items-center gap-3 mb-2">
                 <input type="number" id="thresholdInput" min="0" max="1440" step="15"
@@ -1764,10 +1817,10 @@
                     placeholder="120">
                 <span class="text-slate-400 font-mono text-sm">min</span>
             </div>
-            <p class="text-[10px] text-slate-500 font-mono mb-4">np. 120 = 2h | 180 = 3h | 0 = wyłącz limit</p>
+            <p class="text-[10px] text-slate-500 font-mono mb-4" data-i18n="thresholdHint">np. 120 = 2h | 180 = 3h | 0 = wyłącz limit</p>
             <p id="thresholdError" class="text-xs text-red-400 font-mono mb-3 hidden"></p>
             <button onclick="submitThreshold()" id="thresholdSaveBtn"
-                class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg transition-colors">
+                class="w-full bg-cyan-700 hover:bg-cyan-600 text-white font-bold py-3 rounded-lg transition-colors" data-i18n="thresholdSave">
                 Zapisz limit
             </button>
         </div>
