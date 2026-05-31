@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Kitsune - Family Link Ops</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
 
     <style>
@@ -359,6 +359,7 @@
                 if (sheetsBtn) sheetsBtn.remove();
                 if (thresholdBtn) thresholdBtn.remove();
                 if (reminderBtn) reminderBtn.remove();
+                // W4 — viewer: drill-down modal dostepny (read-only) — celowo NIE usuwamy.
             }
         });
 
@@ -468,7 +469,15 @@
                 'err_INVALID_MINUTES': 'Nieprawidłowa wartość. Podaj liczbę minut od 0 do 1440.',
                 'err_INVALID_DAYS': 'Podaj liczbę dni od 1 do 30.',
                 'err_INVALID_EMAIL': 'Nieprawidłowy format adresu email.',
-                'err_GENERIC': 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.'
+                'err_GENERIC': 'Wystąpił nieoczekiwany błąd. Spróbuj ponownie.',
+                'drillTitle': 'Szczegóły aplikacji',
+                'drillDaily': 'Dziennie (min)',
+                'drillTotal': 'Łącznie w okresie',
+                'drillAvg': 'Śr. dzienna (dni aktywne)',
+                'drillPeak': 'Rekord',
+                'drillActiveDays': 'Dni z aktywnością',
+                'drillNoData': 'Brak danych dla tej aplikacji w wybranym okresie.',
+                'drillHint': 'Kliknij aplikację na liście lub segmencie wykresu'
             },
             'en': {
                 'globalVol': 'Global Volume', 'days': 'days', 'screenRatio': 'Screen vs Awake',
@@ -522,7 +531,15 @@
                 'err_INVALID_MINUTES': 'Invalid value. Enter a number of minutes from 0 to 1440.',
                 'err_INVALID_DAYS': 'Enter a number of days from 1 to 30.',
                 'err_INVALID_EMAIL': 'Invalid email address format.',
-                'err_GENERIC': 'An unexpected error occurred. Please try again.'
+                'err_GENERIC': 'An unexpected error occurred. Please try again.',
+                'drillTitle': 'App Details',
+                'drillDaily': 'Daily (min)',
+                'drillTotal': 'Total in period',
+                'drillAvg': 'Daily avg (active days)',
+                'drillPeak': 'Peak',
+                'drillActiveDays': 'Active days',
+                'drillNoData': 'No data for this app in the selected period.',
+                'drillHint': 'Click an app in the list or chart segment'
             }
         };
 
@@ -1314,7 +1331,9 @@
             sortedApps.slice(0, 5).forEach((app, i) => {
                 const col = topColors[i] || '#64748b';
                 const row = document.createElement('div');
-                row.className = 'flex justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/40';
+                row.className = 'flex justify-between bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/40 cursor-pointer hover:border-slate-600 transition-colors';
+                row.title = trans('drillHint');
+                row.onclick = () => openAppDrillDown(app[0]);
                 const left = document.createElement('span');
                 left.className = 'flex items-center gap-2 font-semibold text-slate-300';
                 const dot = document.createElement('div');
@@ -1454,7 +1473,21 @@
             chartInstances.app = new Chart(document.getElementById('appChart'), {
                 type: 'doughnut',
                 data: { labels: pLbl, datasets: [{ data: pDat, backgroundColor: ['#f43f5e', '#f97316', '#10b981', '#06b6d4', '#8b5cf6', '#475569'], borderWidth: 2, borderColor: '#0f172a' }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 15, color: '#cbd5e1', font: { size: 11, family: 'monospace' } } }, tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ~${(ctx.raw/60).toFixed(1)}h` } } } }
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 15, color: '#cbd5e1', font: { size: 11, family: 'monospace' } } },
+                        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ~${(ctx.raw/60).toFixed(1)}h` } }
+                    },
+                    onClick: function(event, elements) {
+                        if (elements && elements.length > 0) {
+                            const idx = elements[0].index;
+                            const appName = pLbl[idx];
+                            // "Pozostałe/Others" bucket — brak drill-down dla agregatu
+                            if (appName !== trans('otherApps')) openAppDrillDown(appName);
+                        }
+                    }
+                }
             });
 
             // W2 — Trend card
@@ -1676,10 +1709,12 @@
                 const thresholdModal = document.getElementById('thresholdModal');
                 const shareModal = document.getElementById('shareModal');
                 const reminderModal = document.getElementById('reminderModal');
+                const appDrillModal = document.getElementById('appDrillModal');
                 if (uploadModal && !uploadModal.classList.contains('hidden')) closeUploadModal();
                 if (thresholdModal && !thresholdModal.classList.contains('hidden')) closeThresholdModal();
                 if (shareModal && !shareModal.classList.contains('hidden')) closeShareModal();
                 if (reminderModal && !reminderModal.classList.contains('hidden')) closeReminderModal();
+                if (appDrillModal && !appDrillModal.classList.contains('hidden')) closeAppDrillDown();
             }
         });
 
@@ -1776,6 +1811,147 @@
                 .saveReminderSettings(days, email);
         }
  
+
+        // ========================================================
+        // W4 — APP DRILL-DOWN MODAL
+        // ========================================================
+        function openAppDrillDown(appName) {
+            const modal = document.getElementById('appDrillModal');
+            const titleEl = document.getElementById('drillAppName');
+            const subtitleEl = document.getElementById('drillAppSubtitle');
+            const statsEl = document.getElementById('drillStats');
+            const noDataEl = document.getElementById('drillNoData');
+            const chartWrap = document.getElementById('drillChartWrap');
+
+            titleEl.innerText = appName;
+            subtitleEl.innerText = trans('drillTitle');
+            statsEl.innerHTML = '';
+            noDataEl.classList.add('hidden');
+            chartWrap.classList.remove('hidden');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            // Pobierz aktywny filtr i usera — identycznie jak main dashboard
+            const activeTab = document.querySelector('.tab-active');
+            const userName = activeTab ? activeTab.innerText : '';
+            const userData = globalData.filter(row => row.user === userName);
+            const userDates = userData.map(r => new Date(r.date));
+            const maxDate = new Date(Math.max(...userDates));
+            const filterVal = document.getElementById('timeFilter').value;
+
+            let filteredData = userData.filter(row => {
+                const d = new Date(row.date);
+                const diffDays = (maxDate - d) / (1000 * 60 * 60 * 24);
+                if (filterVal === 'last7') return diffDays < 7;
+                if (filterVal === 'last30') return diffDays < 30;
+                if (filterVal === 'currMonth') return d.getMonth() === maxDate.getMonth() && d.getFullYear() === maxDate.getFullYear();
+                if (filterVal === 'currQuarter') {
+                    const qMax = Math.floor(maxDate.getMonth() / 3);
+                    return Math.floor(d.getMonth() / 3) === qMax && d.getFullYear() === maxDate.getFullYear();
+                }
+                if (filterVal === 'currYear') return d.getFullYear() === maxDate.getFullYear();
+                if (filterVal.startsWith('month_')) {
+                    const [, key] = filterVal.split('_');
+                    const [fy, fm] = key.split('-');
+                    return d.getFullYear() === parseInt(fy) && (d.getMonth()+1) === parseInt(fm);
+                }
+                return true;
+            });
+
+            // Wyciągnij per-day series dla tej apki
+            const series = filteredData.map(d => {
+                const appData = d.apps[appName];
+                const min = appData ? (typeof appData === 'object' ? (appData.min || 0) : appData) : 0;
+                return { date: d.date, min: min };
+            }).filter(d => d.min > 0);
+
+            if (series.length === 0) {
+                noDataEl.classList.remove('hidden');
+                chartWrap.classList.add('hidden');
+                return;
+            }
+
+            // KPI stats
+            const totalMin = series.reduce((s, d) => s + d.min, 0);
+            const avgMin = totalMin / series.length;
+            const peakMin = Math.max(...series.map(d => d.min));
+            const activeDays = series.length;
+
+            const kpis = [
+                { label: trans('drillTotal'),      val: formatMinsToStr(totalMin) },
+                { label: trans('drillAvg'),        val: formatMinsToStr(Math.round(avgMin)) },
+                { label: trans('drillPeak'),       val: formatMinsToStr(peakMin) },
+                { label: trans('drillActiveDays'), val: activeDays + ' ' + trans('days') }
+            ];
+            kpis.forEach(k => {
+                const div = document.createElement('div');
+                div.className = 'text-center';
+                div.innerHTML = `<div class="text-[10px] font-mono text-slate-500 uppercase tracking-wide mb-0.5">${k.label}</div>
+                                 <div class="text-sm font-bold text-cyan-400">${k.val}</div>`;
+                statsEl.appendChild(div);
+            });
+
+            // Line chart — per-day usage
+            const dNames = daysOfWeekMap[currentLang];
+            const labels = series.map(d => {
+                const dt = new Date(d.date);
+                return `${('0'+dt.getDate()).slice(-2)}.${('0'+(dt.getMonth()+1)).slice(-2)} (${dNames[dt.getDay()]})`;
+            });
+            const data = series.map(d => d.min);
+
+            if (chartInstances.drill) { chartInstances.drill.destroy(); chartInstances.drill = null; }
+
+            chartInstances.drill = new Chart(document.getElementById('drillChart'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: trans('drillDaily'),
+                        data: data,
+                        backgroundColor: 'rgba(56, 189, 248, 0.25)',
+                        borderColor: 'rgba(56, 189, 248, 0.85)',
+                        borderWidth: 1.5,
+                        borderRadius: 3,
+                        barThickness: data.length > 20 ? 'flex' : 20
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    layout: { padding: { top: 20 } },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(15, 23, 42, 0.98)',
+                            titleFont: { family: 'monospace', size: 12, weight: 'bold' },
+                            bodyFont: { family: 'monospace', size: 11 },
+                            borderColor: 'rgba(56, 189, 248, 0.4)', borderWidth: 1, padding: 10,
+                            callbacks: {
+                                label: ctx => ` ${formatMinsToStr(ctx.raw)}`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            grid: { color: 'rgba(255,255,255,0.04)', borderDash: [3, 6] },
+                            ticks: { callback: v => v >= 60 ? (v/60).toFixed(1)+'h' : v+'m', color: '#64748b', font: { family: 'monospace', size: 9 } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { family: 'monospace', size: 9 }, maxRotation: 45, maxTicksLimit: 14 }
+                        }
+                    }
+                }
+            });
+        }
+
+        function closeAppDrillDown() {
+            const modal = document.getElementById('appDrillModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            if (chartInstances.drill) { chartInstances.drill.destroy(); chartInstances.drill = null; }
+        }
+
         // W6.1 — steruje amber ramką przycisku Remind.
         // hasEmail=false → ramka aktywna (reminder remindera). true → ramka zdjęta.
         function applyReminderButtonState(hasEmail) {
@@ -1883,6 +2059,31 @@
                 data-i18n="reminderSave">
                 Zapisz
             </button>
+        </div>
+    </div>
+
+
+    <!-- W4 — APP DRILL-DOWN MODAL -->
+    <div id="appDrillModal" class="fixed inset-0 bg-slate-950/80 z-50 hidden flex-col items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative">
+            <button onclick="closeAppDrillDown()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <p id="drillAppSubtitle" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-0.5" data-i18n="drillTitle">Szczegóły aplikacji</p>
+            <h2 id="drillAppName" class="text-xl font-black text-cyan-400 mb-4 truncate pr-8">—</h2>
+
+            <!-- KPI strip -->
+            <div id="drillStats" class="grid grid-cols-4 gap-2 mb-4 bg-slate-950/60 rounded-xl p-3 border border-slate-800/40"></div>
+
+            <!-- No data state -->
+            <p id="drillNoData" class="hidden text-xs font-mono text-slate-500 text-center py-6" data-i18n="drillNoData">Brak danych dla tej aplikacji w wybranym okresie.</p>
+
+            <!-- Chart -->
+            <div id="drillChartWrap" class="overflow-x-auto custom-scroll rounded-xl border border-slate-800 bg-slate-950/40">
+                <div style="min-width: 340px; height: 220px;" class="p-2">
+                    <canvas id="drillChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
