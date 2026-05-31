@@ -32,7 +32,7 @@ function checkSetup() {
 function initializeSystem(apiKey) {
   try {
     if (!apiKey || !apiKey.startsWith('AIza') || apiKey.length < 35) {
-      return { success: false, message: "Nieprawidłowy klucz API. Klucz Gemini zaczyna się od 'AIza' i ma co najmniej 35 znaków. Pobierz go na: https://aistudio.google.com/apikey" };
+      return { success: false, code: "INVALID_API_KEY" };
     }
 
     scriptProps.setProperty('GEMINI_API_KEY', apiKey);
@@ -52,7 +52,7 @@ function initializeSystem(apiKey) {
     // W6 — rejestruj daily trigger dla checkUploadReminder() przy nowym setupie
     _registerReminderTriggerIfMissing();
 
-    return { success: true, message: "Ekosystem pomyślnie postawiony." };
+    return { success: true, message: "Ekosystem pomyślnie postawiony. / Ecosystem deployed successfully." };
   } catch (e) {
     return { success: false, message: e.message };
   }
@@ -223,12 +223,12 @@ function uploadFileFromFrontend(dataURI, filename) {
   try {
     const validName = /^[A-Za-zÀ-žĄąĆćĘęŁłŃńÓóŚśŹźŻż]+[_ ].+\.pdf$/i.test(filename);
     if (!validName) {
-      return { success: false, message: "Nieprawidłowa nazwa pliku. Wymagany format: Imię_Data.pdf (np. Zuzia_2024-03.pdf)" };
+      return { success: false, code: "INVALID_FILENAME" };
     }
 
     const dropzoneId = scriptProps.getProperty('DROPZONE_FOLDER_ID');
     if (!dropzoneId) {
-      return { success: false, message: "System nie jest skonfigurowany. Odśwież stronę i przejdź przez Setup." };
+      return { success: false, code: "NOT_CONFIGURED" };
     }
 
     const mimeType = dataURI.split(';')[0].replace('data:', '');
@@ -282,7 +282,7 @@ function saveThreshold(userName, minutes) {
   try {
     const mins = parseInt(minutes);
     if (!userName || isNaN(mins) || mins < 0 || mins > 1440) {
-      return { success: false, message: "Nieprawidłowa wartość. Podaj liczbę minut od 0 do 1440." };
+      return { success: false, code: "INVALID_MINUTES" };
     }
     scriptProps.setProperty('threshold_' + userName, mins.toString());
     return { success: true };
@@ -348,13 +348,13 @@ function saveReminderSettings(days, email) {
   try {
     const d = parseInt(days);
     if (isNaN(d) || d < 1 || d > 30) {
-      return { success: false, message: "Podaj liczbę dni od 1 do 30." };
+      return { success: false, code: "INVALID_DAYS" };
     }
  
     // Email opcjonalny, ale jeśli podany — musi przejść podstawowy guard
     const mail = (email || '').trim();
     if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) {
-      return { success: false, message: "Nieprawidłowy format adresu email." };
+      return { success: false, code: "INVALID_EMAIL" };
     }
  
     scriptProps.setProperty('REMINDER_DAYS', d.toString());
@@ -368,6 +368,9 @@ function saveReminderSettings(days, email) {
 // checkUploadReminder() — wywoływany przez daily time-based trigger.
 // Sprawdza czy minęło więcej niż REMINDER_DAYS dni od ostatniego uploadu.
 // Jeśli tak ORAZ jest skonfigurowany REMINDER_EMAIL — wysyła email.
+// Opcja A guard: jeden email na cykl braku danych.
+//   LAST_REMINDER_SENT >= LAST_UPLOAD_TIMESTAMP → już wysłano w tym cyklu → skip.
+//   Reset następuje automatycznie przy następnym uploadzie (LAST_UPLOAD_TIMESTAMP jest aktualizowany).
 // Edge cases:
 //   - LAST_UPLOAD_TIMESTAMP nie ustawiony (brak uploadów) → skip silently
 //   - REMINDER_EMAIL pusty (nigdy nie ustawiony) → skip silently (frontend sygnalizuje ramką)
@@ -396,15 +399,27 @@ function checkUploadReminder() {
       Logger.log(`W6.1 checkUploadReminder: ${Math.floor(elapsed/86400000)}d od ostatniego uploadu — próg ${days}d nie przekroczony.`);
       return;
     }
+
+    // Opcja A guard: jeśli już wysłano reminder po ostatnim uploadzie — skip.
+    const lastReminderRaw = scriptProps.getProperty('LAST_REMINDER_SENT');
+    if (lastReminderRaw && parseInt(lastReminderRaw) >= lastUpload) {
+      Logger.log('W6.1 checkUploadReminder: reminder już wysłano w tym cyklu, skip.');
+      return;
+    }
  
     const elapsedDays = Math.floor(elapsed / 86400000);
     const lastUploadDate = new Date(lastUpload).toLocaleDateString('pl-PL');
  
-    const subject = `Kitsune FL — Brak nowych danych od ${elapsedDays} dni`;
-    const body = `Cześć,\n\nOd ${elapsedDays} dni (ostatni upload: ${lastUploadDate}) nie dodano nowych danych ekranowych do Kitsune Family Link Ops.\n\nCzas wgrać świeży raport z Family Link.\n\nJeśli chcesz wyłączyć to powiadomienie lub zmienić częstotliwość, otwórz dashboard → przycisk Remind.\n\n— Kitsune FL System`;
+    const subject = `Kitsune FL — No new data for ${elapsedDays} days / Brak nowych danych od ${elapsedDays} dni`;
+    const body =
+      `Cześć,\n\nOd ${elapsedDays} dni (ostatni upload: ${lastUploadDate}) nie dodano nowych danych ekranowych do Kitsune Family Link Ops.\n\nCzas wgrać świeży raport z Family Link.\n\nAby wyłączyć lub zmienić częstotliwość przypomnień: otwórz dashboard → przycisk Remind.\n\n— Kitsune FL System\n\n` +
+      `---\n\n` +
+      `Hi,\n\nNo new screen time data has been added to Kitsune Family Link Ops for ${elapsedDays} days (last upload: ${lastUploadDate}).\n\nTime to upload a fresh Family Link report.\n\nTo disable or change reminder frequency: open the dashboard → Remind button.\n\n— Kitsune FL System`;
  
     MailApp.sendEmail(recipient, subject, body);
-    Logger.log(`W6.1 checkUploadReminder: email wysłany do ${recipient} (${elapsedDays}d od ostatniego uploadu).`);
+    // Opcja A: zapisz timestamp wysłanego emaila — blokuje kolejne do następnego uploadu
+    scriptProps.setProperty('LAST_REMINDER_SENT', Date.now().toString());
+    Logger.log(`W6.1 checkUploadReminder: email wysłany do ${recipient} (${elapsedDays}d od ostatniego uploadu). LAST_REMINDER_SENT ustawiony.`);
  
   } catch (e) {
     Logger.log('W6.1 checkUploadReminder ERROR: ' + e.message);
