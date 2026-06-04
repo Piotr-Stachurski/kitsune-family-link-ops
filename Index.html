@@ -131,7 +131,7 @@
 
     <div id="loadingScreen" class="absolute inset-0 bg-[#020617] z-50 flex flex-col items-center justify-center min-h-screen">
         <div class="loader mb-4"></div>
-        <p id="loadingText" class="text-xs font-mono text-slate-400 tracking-widest uppercase">Inicjalizacja Systemu SSoT...</p>
+        <p id="loadingText" class="text-xs font-mono text-slate-400 tracking-widest uppercase">Inicjalizacja Systemu SSoT... / SSoT System Initializing...</p>
     </div>
 
     <div id="setupScreen" class="absolute inset-0 bg-[#020617] z-40 hidden flex-col items-center justify-center min-h-screen p-6">
@@ -359,7 +359,6 @@
                 if (sheetsBtn) sheetsBtn.remove();
                 if (thresholdBtn) thresholdBtn.remove();
                 if (reminderBtn) reminderBtn.remove();
-                // W4 — viewer: drill-down modal dostepny (read-only) — celowo NIE usuwamy.
             }
         });
 
@@ -410,7 +409,7 @@
         let globalData = [];
         let currentFilteredDataset = [];
         let chartInstances = {};
-        let currentLang = 'pl';
+        let currentLang = 'en';
         let thresholds = {};
         let pollingInterval = null;
         let lastKnownUpdate = null;
@@ -582,6 +581,7 @@
             currentLang = currentLang === 'pl' ? 'en' : 'pl';
             document.getElementById('langBtn').innerText = currentLang === 'pl' ? 'PL / EN' : 'EN / PL';
             updateStaticText();
+            if (globalData && globalData.length > 0) buildMonthFilter(globalData);
             const activeTab = document.querySelector('.tab-active');
             if (activeTab) renderDashboardForUser(activeTab.innerText);
         }
@@ -1483,7 +1483,6 @@
                         if (elements && elements.length > 0) {
                             const idx = elements[0].index;
                             const appName = pLbl[idx];
-                            // "Pozostałe/Others" bucket — brak drill-down dla agregatu
                             if (appName !== trans('otherApps')) openAppDrillDown(appName);
                         }
                     }
@@ -1831,7 +1830,6 @@
             modal.classList.remove('hidden');
             modal.classList.add('flex');
 
-            // Pobierz aktywny filtr i usera — identycznie jak main dashboard
             const activeTab = document.querySelector('.tab-active');
             const userName = activeTab ? activeTab.innerText : '';
             const userData = globalData.filter(row => row.user === userName);
@@ -1858,7 +1856,6 @@
                 return true;
             });
 
-            // Wyciągnij per-day series dla tej apki
             const series = filteredData.map(d => {
                 const appData = d.apps[appName];
                 const min = appData ? (typeof appData === 'object' ? (appData.min || 0) : appData) : 0;
@@ -1871,7 +1868,6 @@
                 return;
             }
 
-            // KPI stats
             const totalMin = series.reduce((s, d) => s + d.min, 0);
             const avgMin = totalMin / series.length;
             const peakMin = Math.max(...series.map(d => d.min));
@@ -1886,16 +1882,15 @@
             kpis.forEach(k => {
                 const div = document.createElement('div');
                 div.className = 'text-center';
-                div.innerHTML = `<div class="text-[10px] font-mono text-slate-500 uppercase tracking-wide mb-0.5">${k.label}</div>
-                                 <div class="text-sm font-bold text-cyan-400">${k.val}</div>`;
+                div.innerHTML = '<div class="text-[10px] font-mono text-slate-500 uppercase tracking-wide mb-0.5">' + k.label + '</div>' +
+                                '<div class="text-sm font-bold text-cyan-400">' + k.val + '</div>';
                 statsEl.appendChild(div);
             });
 
-            // Line chart — per-day usage
             const dNames = daysOfWeekMap[currentLang];
             const labels = series.map(d => {
                 const dt = new Date(d.date);
-                return `${('0'+dt.getDate()).slice(-2)}.${('0'+(dt.getMonth()+1)).slice(-2)} (${dNames[dt.getDay()]})`;
+                return ('0'+dt.getDate()).slice(-2) + '.' + ('0'+(dt.getMonth()+1)).slice(-2) + ' (' + dNames[dt.getDay()] + ')';
             });
             const data = series.map(d => d.min);
 
@@ -1925,9 +1920,7 @@
                             titleFont: { family: 'monospace', size: 12, weight: 'bold' },
                             bodyFont: { family: 'monospace', size: 11 },
                             borderColor: 'rgba(56, 189, 248, 0.4)', borderWidth: 1, padding: 10,
-                            callbacks: {
-                                label: ctx => ` ${formatMinsToStr(ctx.raw)}`
-                            }
+                            callbacks: { label: ctx => ' ' + formatMinsToStr(ctx.raw) }
                         }
                     },
                     scales: {
@@ -2069,16 +2062,10 @@
             <button onclick="closeAppDrillDown()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
-            <p id="drillAppSubtitle" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-0.5" data-i18n="drillTitle">Szczegóły aplikacji</p>
+            <p id="drillAppSubtitle" class="text-[10px] font-mono text-slate-500 uppercase tracking-widest mb-0.5" data-i18n="drillTitle">App Details</p>
             <h2 id="drillAppName" class="text-xl font-black text-cyan-400 mb-4 truncate pr-8">—</h2>
-
-            <!-- KPI strip -->
             <div id="drillStats" class="grid grid-cols-4 gap-2 mb-4 bg-slate-950/60 rounded-xl p-3 border border-slate-800/40"></div>
-
-            <!-- No data state -->
-            <p id="drillNoData" class="hidden text-xs font-mono text-slate-500 text-center py-6" data-i18n="drillNoData">Brak danych dla tej aplikacji w wybranym okresie.</p>
-
-            <!-- Chart -->
+            <p id="drillNoData" class="hidden text-xs font-mono text-slate-500 text-center py-6" data-i18n="drillNoData">No data for this app in the selected period.</p>
             <div id="drillChartWrap" class="overflow-x-auto custom-scroll rounded-xl border border-slate-800 bg-slate-950/40">
                 <div style="min-width: 340px; height: 220px;" class="p-2">
                     <canvas id="drillChart"></canvas>
