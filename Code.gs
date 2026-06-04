@@ -296,14 +296,20 @@ function saveThreshold(userName, minutes) {
 // ==========================================
 
 function getLastUpdateTime() {
+  // [FIX polling] DriveApp.getLastUpdated() ma cache po stronie Google — moze zwracac
+  // stary timestamp przez kilka minut po realnej zmianie arkusza. Powoduje to brak
+  // detekcji w polling loop i koniecznosc recznego odswiezenia dashboardu.
+  // Fix: composite z sumy total_min (col C) + lastRow — oba wektory deterministyczne,
+  // zmieniaja sie natychmiast przy kazdym upsert (nowy rekord LUB update istniejacego).
   try {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
     const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return 0;
-    const modTime = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getLastUpdated().getTime();
-    return modTime + '_' + lastRow;
+    if (lastRow <= 1) return '0_0';
+    const values = sheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    const totalMin = values.reduce((s, r) => s + (parseInt(r[0]) || 0), 0);
+    return totalMin + '_' + lastRow;
   } catch (e) {
-    return 0;
+    return '0_0';
   }
 }
 
